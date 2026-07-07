@@ -6,7 +6,7 @@ from tkinter import ttk, messagebox, filedialog
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from PIL import Image, ImageTk, ImageDraw
+from PIL import Image, ImageTk, ImageDraw, ImageFont
 
 import database as db
 from database import ETATS_CHAMBRE, get_connection, get_chambre_photos, set_chambre_photos
@@ -15,8 +15,12 @@ from widgets import iso_to_date_str, _formater_prix
 PHOTOS_DIR = Path(__file__).parent / "photos_chambres"
 PHOTOS_DIR.mkdir(exist_ok=True)
 
-THUMB_SIZE = (200, 105)
+THUMB_SIZE = (180, 135)  # for form previews
+CARD_SIZE = (200, 170)   # full tile card
 NB_COLONNES = 6
+
+FONT_BOLD = "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf"
+FONT_REG  = "/usr/share/fonts/TTF/DejaVuSans.ttf"
 
 COULEURS_ETAT = {
     "Libre": "#4CAF50",
@@ -26,15 +30,17 @@ COULEURS_ETAT = {
 }
 
 
-def _arrondir_coins(img, radius=6):
+def _arrondir_coins(img, radius=6, composite_on_white=True):
     img_rgba = img.convert("RGBA")
     mask = Image.new("L", img.size, 0)
     draw = ImageDraw.Draw(mask)
     draw.rounded_rectangle([(0, 0), img.size], radius=radius, fill=255)
     img_rgba.putalpha(mask)
-    bg = Image.new("RGB", img.size, "white")
-    bg.paste(img_rgba, mask=img_rgba.split()[3])
-    return bg
+    if composite_on_white:
+        bg = Image.new("RGB", img.size, "white")
+        bg.paste(img_rgba, mask=img_rgba.split()[3])
+        return bg
+    return img_rgba
 
 
 def _exact_thumb(img):
@@ -72,6 +78,78 @@ def _placeholder_thumbnail():
         radius=2, fill="#BBBBBB"
     )
     draw.text((cx - 12, cy + 12), "Chambre", fill="#BBBBBB", font=None)
+    return img
+
+
+def _cover_fill(img, target_size):
+    tw, th = target_size
+    w, h = img.size
+    r_t = tw / th
+    r_s = w / h
+    if r_s > r_t:
+        nw = int(h * r_t)
+        x = (w - nw) // 2
+        return img.crop((x, 0, x + nw, h)).resize(target_size, Image.LANCZOS)
+    else:
+        nh = int(w / r_t)
+        y = (h - nh) // 2
+        return img.crop((0, y, w, y + nh)).resize(target_size, Image.LANCZOS)
+
+
+def _placeholder_card(card_size):
+    W, H = card_size
+    img = Image.new("RGBA", card_size, "#E8E8E8")
+    draw = ImageDraw.Draw(img)
+    cx, cy = W // 2, H // 2 - 10
+    bw, bh = 40, 20
+    draw.rounded_rectangle([cx - bw // 2, cy - bh // 2, cx + bw // 2, cy + bh // 2],
+                           radius=4, fill="#BBBBBB")
+    draw.rounded_rectangle([cx - 16, cy - bh // 2 - 8, cx - 9, cy - bh // 2 + 2],
+                           radius=2, fill="#BBBBBB")
+    draw.rounded_rectangle([cx + 9, cy - bh // 2 - 8, cx + 16, cy - bh // 2 + 2],
+                           radius=2, fill="#BBBBBB")
+    draw.text((cx - 14, cy + 14), "Chambre", fill="#BBBBBB", font=None)
+    return _arrondir_coins(img, 12, composite_on_white=False)
+
+
+def _render_card(card_size, photo_path, chambre, prix, rtype):
+    W, H = card_size
+    if photo_path and Path(photo_path).is_file():
+        try:
+            img = Image.open(photo_path).convert("RGBA")
+        except Exception:
+            return _placeholder_card(card_size)
+    else:
+        return _placeholder_card(card_size)
+
+    img = _cover_fill(img, card_size)
+
+    # Gradient overlay at bottom 35%
+    gh = int(H * 0.38)
+    gradient = Image.new("RGBA", (W, gh), (0, 0, 0, 0))
+    gdraw = ImageDraw.Draw(gradient)
+    for y in range(gh):
+        a = int(200 * (y / gh))
+        gdraw.line([(0, y), (W, y)], fill=(0, 0, 0, a))
+    img.paste(gradient, (0, H - gh), gradient)
+
+    # Text on gradient
+    draw = ImageDraw.Draw(img)
+    try:
+        fb = ImageFont.truetype(FONT_BOLD, 11)
+        fr = ImageFont.truetype(FONT_REG, 8)
+        fp = ImageFont.truetype(FONT_BOLD, 10)
+    except Exception:
+        fb = fr = fp = ImageFont.load_default()
+
+    lx, ly = 10, H - 50
+    draw.text((lx, ly), f"Chambre {chambre['numero']}", font=fb, fill="white")
+    ly += 16
+    draw.text((lx, ly), rtype, font=fr, fill=(255, 255, 255, 200))
+    ly += 14
+    draw.text((lx, ly), f"{prix:.0f} TND / nuit", font=fp, fill="#E65100")
+
+    img = _arrondir_coins(img, 12, composite_on_white=False)
     return img
 
 
@@ -137,7 +215,7 @@ class RoomsTab(tk.Frame):
         hint_frame.pack(fill="x", padx=8, pady=(0, 4))
         ttk.Label(
             hint_frame,
-            text="Clic gauche : Voir l'occupant  |  Clic droit : Modifier la chambre",
+            text="Clic gauche : Photo suivante  |  Clic droit : Modifier  |  Double-clic : Occupant",
             font=("Segoe UI", 8), foreground="#888888"
         ).pack(side="left")
 
@@ -203,103 +281,96 @@ class RoomsTab(tk.Frame):
     def _creer_tile(self, chambre, row, col):
         couleur = COULEURS_ETAT.get(chambre["etat"], "#BDBDBD")
 
-        tile = tk.Frame(self.grid_frame, bg="white", bd=0,
-                        highlightbackground="#D0D0D0", highlightthickness=1,
+        tile = tk.Frame(self.grid_frame, bg=self.grid_frame.cget("bg"),
+                        bd=0, highlightthickness=0,
+                        width=CARD_SIZE[0], height=CARD_SIZE[1],
                         cursor="hand2")
-        tile.grid(row=row, column=col, padx=5, pady=5, sticky="ew")
+        tile.grid(row=row, column=col, padx=5, pady=5)
+        tile.grid_propagate(False)
 
-        # Load photos from chambre_photos + legacy fallback
+        # Load photos
         photos_rows = get_chambre_photos(chambre["id"])
         paths = [r["photo_path"] for r in photos_rows]
         if not paths and chambre.get("photo"):
             paths = [chambre["photo"]]
-
         tile.photo_paths = paths
         tile.photo_index = 0
 
-        # --- Photo area ---
-        photo_frame = tk.Frame(tile, bg="white", bd=0)
-        photo_frame.pack(pady=(8, 2))
+        # Card background image (covers full tile)
+        lbl = tk.Label(tile, bg=self.grid_frame.cget("bg"))
+        lbl.place(x=0, y=0, width=CARD_SIZE[0], height=CARD_SIZE[1])
 
-        lbl_photo = tk.Label(photo_frame, bg="white")
-        lbl_photo.pack()
-
-        # Dots for multi-photo navigation
+        # Counter badge (defined before render_and_set references it)
+        counter = tk.Label(tile, text="",
+                           bg="#333333", fg="white",
+                           font=("Segoe UI", 7), padx=3, pady=0)
         if len(paths) > 1:
-            dots_frame = tk.Frame(photo_frame, bg="white")
-            dots_frame.pack(pady=(2, 0))
+            counter.place(relx=1.0, rely=1.0, anchor="se", x=-5, y=-5)
 
-            dot_labels = []
-            def make_show(idx, lbls):
-                def show(e=None):
-                    tile.photo_index = idx
-                    p = paths[idx] if idx < len(paths) else ""
-                    pil = _load_thumbnail(p)
-                    pil = _arrondir_coins(pil, 8)
-                    tk_img = ImageTk.PhotoImage(pil)
-                    self._thumb_cache[f"{chambre['id']}_{idx}"] = tk_img
-                    lbl_photo.configure(image=tk_img)
-                    for li, lb in enumerate(lbls):
-                        lb.configure(bg="#1F4E79" if li == idx else "#D0D0D0")
-                return show
+        # Render initial card image
+        def render_and_set(idx):
+            p = paths[idx] if idx < len(paths) else ""
+            prix = chambre["prix"]
+            rtype = chambre["type"]
+            img = _render_card(CARD_SIZE, p, chambre, prix, rtype)
+            tk_img = ImageTk.PhotoImage(img)
+            self._thumb_cache[f"{chambre['id']}_{idx}"] = tk_img
+            lbl.configure(image=tk_img)
+            if len(paths) > 1:
+                counter.configure(text=f"{idx+1}/{len(paths)}")
 
-            for i in range(len(paths)):
-                dot = tk.Label(dots_frame, text="  ",
-                               bg="#1F4E79" if i == 0 else "#D0D0D0",
-                               cursor="hand2")
-                dot.pack(side="left", padx=1)
-                dot.bind("<Button-1>", make_show(i, dot_labels))
-                dot_labels.append(dot)
-        else:
-            # Single photo: just one static dot
-            dots_frame = tk.Frame(photo_frame, bg="white")
-            dots_frame.pack(pady=(2, 0))
-            tk.Label(dots_frame, text="  ",
-                     bg="#D0D0D0").pack(side="left", padx=1)
+        render_and_set(0)
 
-        # Show first photo
-        first_path = paths[0] if paths else ""
-        pil_img = _load_thumbnail(first_path)
-        pil_img = _arrondir_coins(pil_img, 8)
-        tk_img = ImageTk.PhotoImage(pil_img)
-        self._thumb_cache[f"{chambre['id']}_0"] = tk_img
-        lbl_photo.configure(image=tk_img)
-
-        # Status pill overlaid on top-right of photo
-        pill = tk.Label(photo_frame, text=chambre["etat"],
+        # Status pill
+        pill = tk.Label(tile, text=chambre["etat"],
                         bg=couleur, fg="white",
                         font=("Segoe UI", 7, "bold"), padx=5, pady=1)
-        pill.place(relx=1.0, rely=0.0, anchor="ne", x=-3, y=3)
+        pill.place(relx=1.0, rely=0.0, anchor="ne", x=-5, y=5)
 
-        # Room number
-        lbl_num = tk.Label(tile, text=f"Chambre {chambre['numero']}",
-                           font=("Segoe UI", 11, "bold"),
-                           fg="#1F4E79", bg="white")
-        lbl_num.pack()
+        # Auto-slideshow every 2.5s
+        slideshow_id = [None]
 
-        # Room type (muted)
-        lbl_type = tk.Label(tile, text=chambre["type"],
-                            font=("Segoe UI", 8), fg="#888888", bg="white")
-        lbl_type.pack()
+        def auto_next():
+            if len(paths) > 1:
+                nxt = (tile.photo_index + 1) % len(paths)
+                tile.photo_index = nxt
+                render_and_set(nxt)
+                slideshow_id[0] = tile.after(2500, auto_next)
 
-        # Price — prominent display
-        prix_frame = tk.Frame(tile, bg="white", bd=0)
-        prix_frame.pack(fill="x", pady=(4, 8))
-        tk.Label(prix_frame,
-                 text=f"{chambre['prix']:.0f} TND",
-                 font=("Segoe UI", 10, "bold"),
-                 fg="#E65100", bg="white").pack()
-        tk.Label(prix_frame, text="par nuit",
-                 font=("Segoe UI", 7), fg="#999999",
-                 bg="white").pack()
+        def stop_slideshow():
+            if slideshow_id[0] is not None:
+                tile.after_cancel(slideshow_id[0])
+                slideshow_id[0] = None
 
-        # Bindings
-        for w in (tile, lbl_photo, photo_frame, lbl_num, lbl_type,
-                  prix_frame, pill):
+        def restart_slideshow():
+            stop_slideshow()
+            if len(paths) > 1:
+                slideshow_id[0] = tile.after(2500, auto_next)
+
+        if len(paths) > 1:
+            slideshow_id[0] = tile.after(2500, auto_next)
+
+        # Photo cycling
+        def cycle(n):
+            if len(paths) > 1:
+                idx = (tile.photo_index + n) % len(paths)
+                tile.photo_index = idx
+                render_and_set(idx)
+                restart_slideshow()
+
+        # Bindings on the full card surface
+        for w in (lbl, tile, pill, counter):
             w.bind("<Button-1>",
-                   lambda e, c=chambre: self.afficher_occupant(c))
+                   lambda e, c=chambre: (
+                       cycle(1), self.afficher_occupant(c)
+                   )[-1])
             w.bind("<Button-3>",
                    lambda e, c=chambre: self.ouvrir_details(c))
+
+        # Separate double-click for occupant
+        for w in (lbl, tile, pill, counter):
+            w.bind("<Double-Button-1>",
+                   lambda e, c=chambre: self.afficher_occupant(c))
 
     # ------------------------------------------------------------------
     def afficher_occupant(self, chambre):
