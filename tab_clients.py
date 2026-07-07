@@ -292,6 +292,10 @@ class ClientsTab(tk.Frame):
             messagebox.showerror("Erreur", "La date de naissance ne peut pas être dans le futur.")
             return None
 
+        if date_entree_iso and date_entree_iso < today:
+            messagebox.showerror("Erreur", "La date d'entrée ne peut pas être dans le passé.")
+            return None
+
         if date_entree_iso and date_sortie_iso and date_sortie_iso < date_entree_iso:
             messagebox.showerror(
                 "Erreur", "La date de sortie doit être après la date d'entrée."
