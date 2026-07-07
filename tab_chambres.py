@@ -9,14 +9,14 @@ from pathlib import Path
 from PIL import Image, ImageTk, ImageDraw
 
 import database as db
-from database import ETATS_CHAMBRE, get_connection
+from database import ETATS_CHAMBRE, get_connection, get_chambre_photos, set_chambre_photos
 from widgets import iso_to_date_str, _formater_prix
 
 PHOTOS_DIR = Path(__file__).parent / "photos_chambres"
 PHOTOS_DIR.mkdir(exist_ok=True)
 
-THUMB_SIZE = (150, 90)
-NB_COLONNES = 4
+THUMB_SIZE = (200, 105)
+NB_COLONNES = 6
 
 COULEURS_ETAT = {
     "Libre": "#4CAF50",
@@ -26,16 +26,52 @@ COULEURS_ETAT = {
 }
 
 
+def _arrondir_coins(img, radius=6):
+    img_rgba = img.convert("RGBA")
+    mask = Image.new("L", img.size, 0)
+    draw = ImageDraw.Draw(mask)
+    draw.rounded_rectangle([(0, 0), img.size], radius=radius, fill=255)
+    img_rgba.putalpha(mask)
+    bg = Image.new("RGB", img.size, "white")
+    bg.paste(img_rgba, mask=img_rgba.split()[3])
+    return bg
+
+
+def _exact_thumb(img):
+    w, h = img.size
+    tw, th = THUMB_SIZE
+    r_img = tw / th
+    r_src = w / h
+    if r_src > r_img:
+        nh = h
+        nw = int(h * r_img)
+    else:
+        nw = w
+        nh = int(w / r_img)
+    x = (w - nw) // 2
+    y = (h - nh) // 2
+    return img.crop((x, y, x + nw, y + nh)).resize(THUMB_SIZE, Image.LANCZOS)
+
+
 def _placeholder_thumbnail():
-    img = Image.new("RGB", THUMB_SIZE, "#d9d9d9")
+    img = Image.new("RGB", THUMB_SIZE, "#E8E8E8")
     draw = ImageDraw.Draw(img)
-    text = "Pas de photo"
-    bbox = draw.textbbox((0, 0), text)
-    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    draw.text(
-        ((THUMB_SIZE[0] - tw) / 2, (THUMB_SIZE[1] - th) / 2),
-        text, fill="#888888",
+    # Bed icon as simple shape
+    cx, cy = THUMB_SIZE[0] // 2, THUMB_SIZE[1] // 2
+    bw, bh = 36, 18
+    draw.rounded_rectangle(
+        [cx - bw // 2, cy - bh // 2, cx + bw // 2, cy + bh // 2],
+        radius=4, fill="#BBBBBB"
     )
+    draw.rounded_rectangle(
+        [cx - 14, cy - bh // 2 - 6, cx - 8, cy - bh // 2 + 2],
+        radius=2, fill="#BBBBBB"
+    )
+    draw.rounded_rectangle(
+        [cx + 8, cy - bh // 2 - 6, cx + 14, cy - bh // 2 + 2],
+        radius=2, fill="#BBBBBB"
+    )
+    draw.text((cx - 12, cy + 12), "Chambre", fill="#BBBBBB", font=None)
     return img
 
 
@@ -44,14 +80,8 @@ def _load_thumbnail(photo_path):
         p = Path(photo_path)
         if p.is_file():
             try:
-                img = Image.open(p)
-                img = img.convert("RGB")
-                img.thumbnail(THUMB_SIZE, Image.LANCZOS)
-                canvas = Image.new("RGB", THUMB_SIZE, "#ececec")
-                x = (THUMB_SIZE[0] - img.width) // 2
-                y = (THUMB_SIZE[1] - img.height) // 2
-                canvas.paste(img, (x, y))
-                return canvas
+                img = Image.open(p).convert("RGB")
+                return _exact_thumb(img)
             except Exception:
                 pass
     return _placeholder_thumbnail()
@@ -85,7 +115,7 @@ class RoomsTab(tk.Frame):
         canvas_frame = ttk.Frame(self)
         canvas_frame.pack(fill="both", expand=True, padx=8, pady=8)
 
-        self.canvas = tk.Canvas(canvas_frame, bg="#F5F5F5",
+        self.canvas = tk.Canvas(canvas_frame, bg="#F0F2F5",
                                  highlightthickness=0)
         self.scrollbar = ttk.Scrollbar(canvas_frame, orient="vertical",
                                         command=self.canvas.yview)
@@ -94,13 +124,22 @@ class RoomsTab(tk.Frame):
         self.canvas.pack(side="left", fill="both", expand=True)
         self.scrollbar.pack(side="right", fill="y")
 
-        self.grid_frame = tk.Frame(self.canvas, bg="#F5F5F5")
+        self.grid_frame = tk.Frame(self.canvas, bg="#F0F2F5")
         self.grid_window = self.canvas.create_window(
             (0, 0), window=self.grid_frame, anchor="nw")
 
         self.grid_frame.bind("<Configure>", self._on_frame_configure)
         self.canvas.bind("<Configure>", self._on_canvas_configure)
         self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+
+        # Hint row
+        hint_frame = ttk.Frame(self)
+        hint_frame.pack(fill="x", padx=8, pady=(0, 4))
+        ttk.Label(
+            hint_frame,
+            text="Clic gauche : Voir l'occupant  |  Clic droit : Modifier la chambre",
+            font=("Segoe UI", 8), foreground="#888888"
+        ).pack(side="left")
 
         self.recap_var = tk.StringVar()
         ttk.Label(self, textvariable=self.recap_var,
@@ -136,7 +175,7 @@ class RoomsTab(tk.Frame):
                     row_index += 1
                 lbl_etage = tk.Label(
                     self.grid_frame, text=f"Étage {etage_courant}",
-                    bg="#F5F5F5", fg="#1F4E79",
+                    bg="#F0F2F5", fg="#1F4E79",
                     font=("Segoe UI", 12, "bold"), anchor="w")
                 lbl_etage.grid(row=row_index, column=0, columnspan=NB_COLONNES,
                                 sticky="w", padx=4, pady=(10, 4))
@@ -164,39 +203,103 @@ class RoomsTab(tk.Frame):
     def _creer_tile(self, chambre, row, col):
         couleur = COULEURS_ETAT.get(chambre["etat"], "#BDBDBD")
 
-        tile = tk.Frame(self.grid_frame, bg="white", bd=1, relief="solid",
-                        width=200, height=170, cursor="hand2")
-        tile.grid(row=row, column=col, padx=8, pady=8, sticky="nsew")
-        tile.grid_propagate(False)
+        tile = tk.Frame(self.grid_frame, bg="white", bd=0,
+                        highlightbackground="#D0D0D0", highlightthickness=1,
+                        cursor="hand2")
+        tile.grid(row=row, column=col, padx=5, pady=5, sticky="ew")
 
-        pil_img = _load_thumbnail(chambre.get("photo", ""))
+        # Load photos from chambre_photos + legacy fallback
+        photos_rows = get_chambre_photos(chambre["id"])
+        paths = [r["photo_path"] for r in photos_rows]
+        if not paths and chambre.get("photo"):
+            paths = [chambre["photo"]]
+
+        tile.photo_paths = paths
+        tile.photo_index = 0
+
+        # --- Photo area ---
+        photo_frame = tk.Frame(tile, bg="white", bd=0)
+        photo_frame.pack(pady=(8, 2))
+
+        lbl_photo = tk.Label(photo_frame, bg="white")
+        lbl_photo.pack()
+
+        # Dots for multi-photo navigation
+        if len(paths) > 1:
+            dots_frame = tk.Frame(photo_frame, bg="white")
+            dots_frame.pack(pady=(2, 0))
+
+            dot_labels = []
+            def make_show(idx, lbls):
+                def show(e=None):
+                    tile.photo_index = idx
+                    p = paths[idx] if idx < len(paths) else ""
+                    pil = _load_thumbnail(p)
+                    pil = _arrondir_coins(pil, 8)
+                    tk_img = ImageTk.PhotoImage(pil)
+                    self._thumb_cache[f"{chambre['id']}_{idx}"] = tk_img
+                    lbl_photo.configure(image=tk_img)
+                    for li, lb in enumerate(lbls):
+                        lb.configure(bg="#1F4E79" if li == idx else "#D0D0D0")
+                return show
+
+            for i in range(len(paths)):
+                dot = tk.Label(dots_frame, text="  ",
+                               bg="#1F4E79" if i == 0 else "#D0D0D0",
+                               cursor="hand2")
+                dot.pack(side="left", padx=1)
+                dot.bind("<Button-1>", make_show(i, dot_labels))
+                dot_labels.append(dot)
+        else:
+            # Single photo: just one static dot
+            dots_frame = tk.Frame(photo_frame, bg="white")
+            dots_frame.pack(pady=(2, 0))
+            tk.Label(dots_frame, text="  ",
+                     bg="#D0D0D0").pack(side="left", padx=1)
+
+        # Show first photo
+        first_path = paths[0] if paths else ""
+        pil_img = _load_thumbnail(first_path)
+        pil_img = _arrondir_coins(pil_img, 8)
         tk_img = ImageTk.PhotoImage(pil_img)
-        self._thumb_cache[chambre["id"]] = tk_img
+        self._thumb_cache[f"{chambre['id']}_0"] = tk_img
+        lbl_photo.configure(image=tk_img)
 
-        lbl_photo = tk.Label(tile, image=tk_img, bg="white")
-        lbl_photo.pack(pady=(6, 4))
+        # Status pill overlaid on top-right of photo
+        pill = tk.Label(photo_frame, text=chambre["etat"],
+                        bg=couleur, fg="white",
+                        font=("Segoe UI", 7, "bold"), padx=5, pady=1)
+        pill.place(relx=1.0, rely=0.0, anchor="ne", x=-3, y=3)
 
-        lbl_numero = tk.Label(tile, text=f"Chambre {chambre['numero']}",
-                               font=("Segoe UI", 10, "bold"), bg="white")
-        lbl_numero.pack()
+        # Room number
+        lbl_num = tk.Label(tile, text=f"Chambre {chambre['numero']}",
+                           font=("Segoe UI", 11, "bold"),
+                           fg="#1F4E79", bg="white")
+        lbl_num.pack()
 
-        statut_frame = tk.Frame(tile, bg="white")
-        statut_frame.pack(pady=(2, 6))
+        # Room type (muted)
+        lbl_type = tk.Label(tile, text=chambre["type"],
+                            font=("Segoe UI", 8), fg="#888888", bg="white")
+        lbl_type.pack()
 
-        dot = tk.Canvas(statut_frame, width=12, height=12, bg="white",
-                         highlightthickness=0)
-        dot.create_oval(2, 2, 12, 12, fill=couleur, outline=couleur)
-        dot.pack(side="left", padx=(0, 4))
+        # Price — prominent display
+        prix_frame = tk.Frame(tile, bg="white", bd=0)
+        prix_frame.pack(fill="x", pady=(4, 8))
+        tk.Label(prix_frame,
+                 text=f"{chambre['prix']:.0f} TND",
+                 font=("Segoe UI", 10, "bold"),
+                 fg="#E65100", bg="white").pack()
+        tk.Label(prix_frame, text="par nuit",
+                 font=("Segoe UI", 7), fg="#999999",
+                 bg="white").pack()
 
-        lbl_etat = tk.Label(statut_frame, text=chambre["etat"],
-                             font=("Segoe UI", 8), fg="#555555", bg="white")
-        lbl_etat.pack(side="left")
-
-        for widget in (tile, lbl_photo, lbl_numero, statut_frame, dot, lbl_etat):
-            widget.bind("<Button-1>",
-                        lambda e, c=chambre: self.afficher_occupant(c))
-            widget.bind("<Button-3>",
-                        lambda e, c=chambre: self.ouvrir_details(c))
+        # Bindings
+        for w in (tile, lbl_photo, photo_frame, lbl_num, lbl_type,
+                  prix_frame, pill):
+            w.bind("<Button-1>",
+                   lambda e, c=chambre: self.afficher_occupant(c))
+            w.bind("<Button-3>",
+                   lambda e, c=chambre: self.ouvrir_details(c))
 
     # ------------------------------------------------------------------
     def afficher_occupant(self, chambre):
@@ -204,6 +307,7 @@ class RoomsTab(tk.Frame):
         win.title(f"Chambre {chambre['numero']} — Détails occupation")
         win.resizable(False, False)
         win.transient(self)
+        win.wait_visibility()
         win.grab_set()
 
         BLEU = "#2C3E6B"
@@ -357,27 +461,52 @@ class RoomsTab(tk.Frame):
             row=4, column=1, columnspan=2, sticky="w", **pad)
 
         # ------------------------------------------------------------
-        # Photo
+        # Photos (multiples)
         # ------------------------------------------------------------
-        tk.Label(win, text="Image").grid(row=5, column=0, sticky="ne", **pad)
+        tk.Label(win, text="Photos").grid(row=5, column=0, sticky="ne", **pad)
 
-        preview_label = tk.Label(win, bg="#ececec", bd=1, relief="solid")
-        preview_label.grid(row=5, column=1, sticky="w", padx=10, pady=6)
+        photos_list = []  # list of (path, label_widget, btn_widget)
 
-        photo_var = tk.StringVar(
-            value=chambre.get("photo", "") if est_edition else ""
-        )
-        preview_ref = {"img": None}
+        photos_container = tk.Frame(win, bd=1, relief="solid", bg="white")
+        photos_container.grid(row=5, column=1, columnspan=2, sticky="ew",
+                              padx=10, pady=6, ipady=4)
 
-        def rafraichir_preview():
-            pil_img = _load_thumbnail(photo_var.get())
-            tk_img = ImageTk.PhotoImage(pil_img)
-            preview_ref["img"] = tk_img
-            preview_label.configure(image=tk_img)
+        def rebuild_photos_ui():
+            for w in photos_container.winfo_children():
+                w.destroy()
+            if not photos_list:
+                tk.Label(photos_container, text="Aucune photo",
+                         fg="#999999", bg="white",
+                         font=("Segoe UI", 8)).pack(pady=10)
+                return
+            row_frame = tk.Frame(photos_container, bg="white")
+            row_frame.pack(padx=4, pady=4)
+            for idx, (path, _, _) in enumerate(photos_list):
+                cell = tk.Frame(row_frame, bg="white", bd=1, relief="solid")
+                cell.grid(row=0, column=idx, padx=3)
 
-        rafraichir_preview()
+                pil = _load_thumbnail(path)
+                tk_img = ImageTk.PhotoImage(pil)
+                self._thumb_cache[f"form_{path}"] = tk_img
 
-        def choisir_fichier():
+                lbl = tk.Label(cell, image=tk_img, bg="white")
+                lbl.pack()
+                lbl.image = tk_img
+
+                def make_del(i):
+                    def del_photo():
+                        nonlocal photos_list
+                        if i < len(photos_list):
+                            photos_list.pop(i)
+                            rebuild_photos_ui()
+                    return del_photo
+
+                tk.Button(cell, text="X", font=("Segoe UI", 6, "bold"),
+                          fg="white", bg="#E53935", bd=0,
+                          command=make_del(idx)).place(relx=1.0, rely=0.0,
+                                                       anchor="ne")
+
+        def ajouter_photo():
             path = filedialog.askopenfilename(
                 title="Choisir une image",
                 filetypes=[("Images", "*.jpg *.jpeg *.png"), ("Tous", "*.*")]
@@ -387,27 +516,29 @@ class RoomsTab(tk.Frame):
             src = Path(path)
             try:
                 dest = PHOTOS_DIR / src.name
-                if dest.exists() and dest.resolve() != src.resolve():
-                    dest = PHOTOS_DIR / f"{src.stem}_{numero_var.get() or 'chambre'}{src.suffix}"
-                shutil.copy2(src, dest)
-                photo_var.set(str(dest))
-                rafraichir_preview()
+                if dest.exists():
+                    if dest.resolve() == src.resolve():
+                        photos_list.append((str(dest), None, None))
+                        rebuild_photos_ui()
+                        return
+                    stem = numero_var.get().strip() or "chambre"
+                    dest = PHOTOS_DIR / f"{src.stem}_{stem}{src.suffix}"
+                shutil.copy2(str(src), str(dest))
+                photos_list.append((str(dest), None, None))
+                rebuild_photos_ui()
             except Exception as e:
-                messagebox.showerror("Erreur", f"Impossible de copier l'image :\n{e}")
+                messagebox.showerror("Erreur",
+                                     f"Impossible de copier l'image :\n{e}")
 
-        def coller_chemin():
-            saisie = filedialog.askopenfilename(
-                title="Coller le chemin ou sélectionner une image",
-                filetypes=[("Images", "*.jpg *.jpeg *.png"), ("Tous", "*.*")]
-            )
-            if saisie:
-                photo_var.set(saisie)
-                rafraichir_preview()
+        if est_edition:
+            for p in get_chambre_photos(chambre["id"]):
+                photos_list.append((p["photo_path"], None, None))
 
-        btn_frame = tk.Frame(win)
-        btn_frame.grid(row=5, column=2, sticky="w", padx=10, pady=6)
-        tk.Button(btn_frame, text="Parcourir...", command=choisir_fichier).pack(fill="x", pady=(0, 4))
-        tk.Button(btn_frame, text="Coller chemin", command=coller_chemin).pack(fill="x")
+        rebuild_photos_ui()
+
+        tk.Button(win, text="+ Ajouter une photo",
+                  command=ajouter_photo).grid(
+            row=6, column=1, sticky="w", padx=10, pady=(0, 6))
 
         # ------------------------------------------------------------
         # Actions
@@ -426,11 +557,22 @@ class RoomsTab(tk.Frame):
             try:
                 if not est_edition:
                     db.add_chambre(numero, type_var.get(), prix, etat_var.get(),
-                                   desc_var.get(), photo_var.get())
+                                   desc_var.get(), "")
+                    # Get the new room's ID
+                    nouvelles = db.get_chambres()
+                    new_id = None
+                    for nv in nouvelles:
+                        if nv["numero"] == numero:
+                            new_id = nv["id"]
+                            break
+                    if new_id:
+                        paths = [p[0] for p in photos_list]
+                        set_chambre_photos(new_id, paths)
                 else:
                     db.update_chambre(chambre["id"], numero, type_var.get(),
-                                       prix, etat_var.get(), desc_var.get(),
-                                       photo_var.get())
+                                       prix, etat_var.get(), desc_var.get(), "")
+                    paths = [p[0] for p in photos_list]
+                    set_chambre_photos(chambre["id"], paths)
             except Exception as exc:
                 messagebox.showerror("Erreur", f"Impossible d'enregistrer : {exc}")
                 return
@@ -456,7 +598,7 @@ class RoomsTab(tk.Frame):
             self.app.refresh_clients_tab()
 
         action_frame = tk.Frame(win)
-        action_frame.grid(row=6, column=0, columnspan=3, pady=(10, 12))
+        action_frame.grid(row=7, column=0, columnspan=3, pady=(10, 12))
         tk.Button(action_frame, text="Enregistrer", width=12,
                   command=enregistrer).pack(side="left", padx=6)
         if est_edition:

@@ -225,6 +225,18 @@ def init_db():
             "INSERT OR IGNORE INTO parametres (cle, valeur) VALUES (?, ?)",
             (cle, valeur),
         )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS chambre_photos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chambre_id INTEGER NOT NULL,
+            photo_path TEXT NOT NULL,
+            ordre INTEGER DEFAULT 0,
+            FOREIGN KEY (chambre_id) REFERENCES chambres(id) ON DELETE CASCADE
+        )
+        """
+    )
+
     conn.commit()
 
     # Si aucune chambre n'existe, on crée un parc de chambres par défaut
@@ -336,6 +348,52 @@ def set_chambre_etat(chambre_id, etat):
 def delete_chambre(chambre_id):
     conn = get_connection()
     conn.execute("DELETE FROM chambres WHERE id=?", (chambre_id,))
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Photos des chambres (multiples)
+# ---------------------------------------------------------------------------
+def get_chambre_photos(chambre_id):
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM chambre_photos WHERE chambre_id=? ORDER BY ordre, id",
+        (chambre_id,)
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+def add_chambre_photo(chambre_id, photo_path, ordre=0):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO chambre_photos (chambre_id, photo_path, ordre) VALUES (?, ?, ?)",
+        (chambre_id, photo_path, ordre),
+    )
+    pid = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return pid
+
+
+def delete_chambre_photo(photo_id):
+    conn = get_connection()
+    conn.execute("DELETE FROM chambre_photos WHERE id=?", (photo_id,))
+    conn.commit()
+    conn.close()
+
+
+def set_chambre_photos(chambre_id, paths):
+    """Replace all photos for a room with a new list of paths."""
+    conn = get_connection()
+    conn.execute("DELETE FROM chambre_photos WHERE chambre_id=?", (chambre_id,))
+    for i, p in enumerate(paths):
+        conn.execute(
+            "INSERT INTO chambre_photos (chambre_id, photo_path, ordre) VALUES (?, ?, ?)",
+            (chambre_id, p, i),
+        )
     conn.commit()
     conn.close()
 
