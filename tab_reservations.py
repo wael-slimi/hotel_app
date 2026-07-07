@@ -291,6 +291,13 @@ class ReservationsTab(tk.Frame):
                     parent=win)
                 return
 
+            erreur_format = db.validate_identifiant_format(
+                type_id_var.get(), num_id_var.get().strip()
+            )
+            if erreur_format:
+                messagebox.showerror("Erreur", erreur_format, parent=win)
+                return
+
             data = {
                 "nom": nom,
                 "prenom": prenom,

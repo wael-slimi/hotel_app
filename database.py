@@ -7,6 +7,7 @@ ajoutes pour que ce module fonctionne de maniere independante).
 """
 
 import os
+import re
 import sqlite3
 from datetime import date, datetime, timedelta
 
@@ -36,6 +37,22 @@ CATEGORIES_DEPENSE = [
 
 # Types d'identifiants pour les clients
 TYPES_IDENTIFIANT = ["CIN", "Passeport", "Carte de séjour"]
+
+def validate_identifiant_format(type_identifiant, numero_identifiant):
+    patterns = {
+        "CIN": r"^\d{8}$",
+        "Passeport": r"^[A-Za-z]\d{7}$",
+        "Carte de séjour": r"^\d+$",
+    }
+    pattern = patterns.get(type_identifiant)
+    if pattern and not re.match(pattern, numero_identifiant):
+        if type_identifiant == "CIN":
+            return "Le CIN doit contenir exactement 8 chiffres."
+        elif type_identifiant == "Passeport":
+            return "Le passeport doit contenir 1 lettre suivie de 7 chiffres (ex: A1234567)."
+        elif type_identifiant == "Carte de séjour":
+            return "La carte de séjour doit contenir uniquement des chiffres."
+    return None
 
 
 def get_connection():

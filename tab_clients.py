@@ -282,6 +282,13 @@ class ClientsTab(tk.Frame):
                 "Les champs Nom, Prénom et N° d'identifiant sont obligatoires.")
             return None
 
+        erreur_format = db.validate_identifiant_format(
+            self.vars["type_identifiant"].get(), numero_id
+        )
+        if erreur_format:
+            messagebox.showerror("Erreur", erreur_format)
+            return None
+
         date_naissance_iso = date_str_to_iso(self.date_naissance.get())
         date_entree_iso = date_str_to_iso(self.date_entree.get())
         date_sortie_iso = date_str_to_iso(self.date_sortie.get())
