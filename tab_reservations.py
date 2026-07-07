@@ -274,6 +274,13 @@ class ReservationsTab(tk.Frame):
                     parent=win)
                 return
 
+            if d_arr < date.today().isoformat():
+                messagebox.showerror(
+                    "Erreur",
+                    "La date d'arrivée ne peut pas être dans le passé.",
+                    parent=win)
+                return
+
             try:
                 nb = int(nb_var.get())
                 if nb < 1:

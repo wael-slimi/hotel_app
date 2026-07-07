@@ -286,6 +286,18 @@ class ClientsTab(tk.Frame):
         date_entree_iso = date_str_to_iso(self.date_entree.get())
         date_sortie_iso = date_str_to_iso(self.date_sortie.get())
 
+        today = date.today().isoformat()
+
+        if date_naissance_iso and date_naissance_iso > today:
+            messagebox.showerror("Erreur", "La date de naissance ne peut pas être dans le futur.")
+            return None
+
+        if date_entree_iso and date_sortie_iso and date_sortie_iso < date_entree_iso:
+            messagebox.showerror(
+                "Erreur", "La date de sortie doit être après la date d'entrée."
+            )
+            return None
+
         chambre_texte = self.chambre_var.get()
         chambre_id = self.chambres_map.get(chambre_texte)
 

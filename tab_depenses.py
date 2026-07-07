@@ -221,6 +221,9 @@ class DepensesTab(tk.Frame):
         if not date_iso:
             messagebox.showerror("Erreur", "La date est invalide (format JJ/MM/AAAA).")
             return
+        if date_iso > date.today().isoformat():
+            messagebox.showerror("Erreur", "La date de dépense ne peut pas être dans le futur.")
+            return
         try:
             montant = float(self.montant_var.get().replace(",", "."))
             if montant <= 0:
@@ -287,6 +290,9 @@ class DepensesTab(tk.Frame):
             date_iso = date_str_to_iso(date_entry.get())
             if not date_iso:
                 messagebox.showerror("Erreur", "Date invalide (format JJ/MM/AAAA).")
+                return
+            if date_iso > date.today().isoformat():
+                messagebox.showerror("Erreur", "La date de dépense ne peut pas être dans le futur.")
                 return
             try:
                 montant = float(montant_var.get().replace(",", "."))
