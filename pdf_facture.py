@@ -302,7 +302,6 @@ def generer_fiche_police(client):
     story.append(Spacer(1, 4))
     t3 = Table([
         ligne("Chambre N°", client.get("chambre_numero")),
-        ligne("Prix / nuit", f"{client.get('chambre_prix', '—')} TND"),
         ligne("Date d'entrée", iso_to_date_str(client.get("date_entree", "")) or "—"),
         ligne("Date de sortie", iso_to_date_str(client.get("date_sortie", "")) or "—"),
         ligne("Venant de", client.get("venant_de")),
