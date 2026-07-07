@@ -77,7 +77,8 @@ def init_db():
             type TEXT NOT NULL DEFAULT 'Simple',
             prix REAL NOT NULL DEFAULT 0,
             etat TEXT NOT NULL DEFAULT 'Libre',
-            description TEXT DEFAULT ''
+            description TEXT DEFAULT '',
+            photo TEXT DEFAULT ''
         )
         """
     )
@@ -145,6 +146,11 @@ def init_db():
         pass
     try:
         cur.execute("ALTER TABLE factures ADD COLUMN montant_paye REAL DEFAULT 0")
+        conn.commit()
+    except Exception:
+        pass
+    try:
+        cur.execute("ALTER TABLE chambres ADD COLUMN photo TEXT DEFAULT ''")
         conn.commit()
     except Exception:
         pass
@@ -223,12 +229,12 @@ def init_db():
 
     # Si aucune chambre n'existe, on crée un parc de chambres par défaut
     # Si aucune chambre n'existe, on crée un parc de chambres par défaut
-    # 4 étages x 4 chambres = 16 chambres, numérotées "étage-chambre" (ex: 1-3)
+    # 4 étages x 8 chambres = 32 chambres, numérotées "étage-chambre" (ex: 1-3)
     cur.execute("SELECT COUNT(*) AS n FROM chambres")
     if cur.fetchone()["n"] == 0:
         chambres_defaut = []
         for etage in range(1, 5):
-            for i in range(1, 5):
+            for i in range(1, 9):
                 numero = f"{etage}-{i}"
                 if i == 1:
                     type_ch, prix = "Suite", 180.0
@@ -236,10 +242,10 @@ def init_db():
                     type_ch, prix = "Double", 120.0
                 else:
                     type_ch, prix = "Simple", 80.0
-                chambres_defaut.append((numero, type_ch, prix, "Libre", ""))
+                chambres_defaut.append((numero, type_ch, prix, "Libre", "", ""))
         cur.executemany(
-            "INSERT INTO chambres (numero, type, prix, etat, description) "
-            "VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO chambres (numero, type, prix, etat, description, photo) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
             chambres_defaut,
         )
         conn.commit()
@@ -298,23 +304,23 @@ def get_chambres_libres():
     return rows
 
 
-def add_chambre(numero, type_ch, prix, etat="Libre", description=""):
+def add_chambre(numero, type_ch, prix, etat="Libre", description="", photo=""):
     conn = get_connection()
     conn.execute(
-        "INSERT INTO chambres (numero, type, prix, etat, description) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (numero, type_ch, prix, etat, description),
+        "INSERT INTO chambres (numero, type, prix, etat, description, photo) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (numero, type_ch, prix, etat, description, photo),
     )
     conn.commit()
     conn.close()
 
 
-def update_chambre(chambre_id, numero, type_ch, prix, etat, description):
+def update_chambre(chambre_id, numero, type_ch, prix, etat, description, photo=""):
     conn = get_connection()
     conn.execute(
-        "UPDATE chambres SET numero=?, type=?, prix=?, etat=?, description=? "
+        "UPDATE chambres SET numero=?, type=?, prix=?, etat=?, description=?, photo=? "
         "WHERE id=?",
-        (numero, type_ch, prix, etat, description, chambre_id),
+        (numero, type_ch, prix, etat, description, photo, chambre_id),
     )
     conn.commit()
     conn.close()

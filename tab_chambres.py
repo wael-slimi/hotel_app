@@ -6,13 +6,18 @@ modification du code original (seuls les imports necessaires ont ete
 ajoutes pour que ce module fonctionne de maniere independante).
 """
 
+import os
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 from datetime import date, datetime, timedelta
+
+from PIL import Image, ImageTk
 
 import database as db
 from database import ETATS_CHAMBRE, get_connection
 from widgets import iso_to_date_str, _formater_prix
+
+PHOTOS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "photos_chambres")
 
 # ==============================================================================
 # Module : tab_chambres.py
@@ -135,38 +140,49 @@ class RoomsTab(tk.Frame):
         )
 
     def _creer_tile(self, chambre, row, col):
+        os.makedirs(PHOTOS_DIR, exist_ok=True)
         couleur = COULEURS_ETAT.get(chambre["etat"], "#BDBDBD")
 
         tile = tk.Frame(self.grid_frame, bg=couleur, bd=2, relief="raised",
-                        width=160, height=110)
+                        width=190, height=160)
         tile.grid(row=row, column=col, padx=8, pady=8, sticky="nsew")
         tile.grid_propagate(False)
 
+        # Photo
+        photo_path = chambre.get("photo", "") or ""
+        photo_img = None
+        if photo_path and os.path.exists(photo_path):
+            try:
+                img = Image.open(photo_path)
+                img.thumbnail((170, 95), Image.LANCZOS)
+                photo_img = ImageTk.PhotoImage(img)
+            except Exception:
+                photo_img = None
+
+        if photo_img:
+            lbl_photo = tk.Label(tile, image=photo_img, bg=couleur)
+            lbl_photo.image = photo_img
+        else:
+            lbl_photo = tk.Label(tile, text="📷\nAucune photo", bg=couleur,
+                                  fg=COULEUR_TEXTE, font=("Segoe UI", 9))
+        lbl_photo.pack(pady=(6, 4))
+
+        # Room number
         lbl_numero = tk.Label(tile, text=f"Chambre {chambre['numero']}",
                                bg=couleur, fg=COULEUR_TEXTE,
-                               font=("Segoe UI", 12, "bold"))
-        lbl_numero.pack(pady=(10, 2))
+                               font=("Segoe UI", 10, "bold"))
+        lbl_numero.pack()
 
-        lbl_type = tk.Label(tile, text=chambre["type"], bg=couleur,
-                             fg=COULEUR_TEXTE, font=("Segoe UI", 10))
-        lbl_type.pack()
+        # Status
+        lbl_etat = tk.Label(tile, text=f"● {chambre['etat']}", bg=couleur,
+                             fg=COULEUR_TEXTE, font=("Segoe UI", 9))
+        lbl_etat.pack(pady=(0, 4))
 
-        lbl_prix = tk.Label(tile, text=f"{chambre['prix']:.3f} TND / nuit",
-                             bg=couleur, fg=COULEUR_TEXTE,
-                             font=("Segoe UI", 9))
-        lbl_prix.pack()
-
-        lbl_etat = tk.Label(tile, text=chambre["etat"], bg=couleur,
-                             fg=COULEUR_TEXTE, font=("Segoe UI", 9, "italic"))
-        lbl_etat.pack(pady=(2, 6))
-
-       # Rendre toute la tuile cliquable
-        for widget in (tile, lbl_numero, lbl_type, lbl_prix, lbl_etat):
+        for widget in (tile, lbl_photo, lbl_numero, lbl_etat):
             widget.bind("<Button-1>",
+                        lambda e, c=chambre: self.afficher_occupant(c))
+            widget.bind("<Button-3>",
                         lambda e, c=chambre: self.ouvrir_details(c))
-            if chambre["etat"] in ("Occupée", "Réservée"):
-                widget.bind("<Button-3>",
-                            lambda e, c=chambre: self.afficher_occupant(c))
     def afficher_occupant(self, chambre):
         """Clic droit sur une chambre occupée ou réservée : affiche qui l'occupe."""
         win = tk.Toplevel(self)
@@ -322,6 +338,55 @@ class RoomsTab(tk.Frame):
         ttk.Entry(win, textvariable=desc_var, width=20).grid(
             row=4, column=1, padx=8, pady=4)
 
+        # Photo
+        ttk.Label(win, text="Image").grid(row=5, column=0, sticky="w",
+                                            padx=8, pady=4)
+        photo_frame = ttk.Frame(win)
+        photo_frame.grid(row=5, column=1, padx=8, pady=4, sticky="w")
+        photo_var = tk.StringVar(value=chambre["photo"] if chambre and chambre.get("photo") else "")
+
+        def rafraichir_preview():
+            path = photo_var.get()
+            for w in photo_frame.winfo_children():
+                w.destroy()
+            if path and os.path.exists(path):
+                try:
+                    img = Image.open(path)
+                    img.thumbnail((150, 90), Image.LANCZOS)
+                    photo_tk = ImageTk.PhotoImage(img)
+                    lbl = tk.Label(photo_frame, image=photo_tk, bd=1, relief="solid")
+                    lbl.image = photo_tk
+                    lbl.pack(side="left")
+                except Exception:
+                    tk.Label(photo_frame, text="Image invalide",
+                             fg="red").pack(side="left")
+            else:
+                tk.Label(photo_frame, text="Aucune image",
+                         font=("Segoe UI", 9, "italic")).pack(side="left")
+
+        def choisir_photo():
+            path = filedialog.askopenfilename(
+                title="Choisir une image",
+                filetypes=[("Images", "*.jpg *.jpeg *.png *.gif *.bmp")]
+            )
+            if not path:
+                return
+            os.makedirs(PHOTOS_DIR, exist_ok=True)
+            ext = os.path.splitext(path)[1] or ".jpg"
+            dest = os.path.join(PHOTOS_DIR, f"chambre_{numero_var.get() or 'new'}{ext}")
+            try:
+                from shutil import copy2
+                copy2(path, dest)
+                photo_var.set(dest)
+                rafraichir_preview()
+            except Exception as e:
+                messagebox.showerror("Erreur", f"Impossible de copier l'image : {e}")
+
+        ttk.Button(photo_frame, text="Parcourir...", command=choisir_photo).pack(side="left", padx=(0, 4))
+        ttk.Entry(photo_frame, textvariable=photo_var, width=18).pack(side="left", padx=(0, 4))
+        ttk.Button(photo_frame, text="OK", command=rafraichir_preview).pack(side="left")
+        rafraichir_preview()
+
         def enregistrer():
             numero = numero_var.get().strip()
             if not numero:
@@ -336,10 +401,11 @@ class RoomsTab(tk.Frame):
             try:
                 if chambre is None:
                     db.add_chambre(numero, type_var.get(), prix, etat_var.get(),
-                                   desc_var.get())
+                                   desc_var.get(), photo_var.get())
                 else:
                     db.update_chambre(chambre["id"], numero, type_var.get(),
-                                       prix, etat_var.get(), desc_var.get())
+                                       prix, etat_var.get(), desc_var.get(),
+                                       photo_var.get())
             except Exception as exc:  # ex: numéro déjà existant (UNIQUE)
                 messagebox.showerror("Erreur", f"Impossible d'enregistrer : {exc}")
                 return
@@ -365,7 +431,7 @@ class RoomsTab(tk.Frame):
             self.app.refresh_clients_tab()
 
         btn_frame = ttk.Frame(win)
-        btn_frame.grid(row=5, column=0, columnspan=2, pady=10)
+        btn_frame.grid(row=6, column=0, columnspan=2, pady=10)
         ttk.Button(btn_frame, text="Enregistrer", command=enregistrer).pack(
             side="left", padx=4)
         if chambre is not None:
