@@ -405,7 +405,12 @@ class ReservationsTab(tk.Frame):
             "date_sortie": r["date_depart"],
             "statut": "En cours",
         }
-        db.add_client(data_client)
+
+        try:
+            db.add_client(data_client)
+        except ValueError as e:
+            messagebox.showerror("Erreur", str(e))
+            return
 
         # Supprimer la réservation
         conn = get_connection()

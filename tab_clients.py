@@ -312,13 +312,17 @@ class ClientsTab(tk.Frame):
         if data is None:
             return
 
-        if self.selected_client_id:
-            db.update_client(self.selected_client_id, data)
-            messagebox.showinfo("Succès", "Client mis à jour avec succès.")
-        else:
-            new_id = db.add_client(data)
-            self.selected_client_id = new_id
-            messagebox.showinfo("Succès", "Client ajouté avec succès.")
+        try:
+            if self.selected_client_id:
+                db.update_client(self.selected_client_id, data)
+                messagebox.showinfo("Succès", "Client mis à jour avec succès.")
+            else:
+                new_id = db.add_client(data)
+                self.selected_client_id = new_id
+                messagebox.showinfo("Succès", "Client ajouté avec succès.")
+        except ValueError as e:
+            messagebox.showerror("Erreur", str(e))
+            return
 
         self.refresh()
         self.app.refresh_rooms_tab()

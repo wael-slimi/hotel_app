@@ -89,6 +89,10 @@ def init_db():
     )
 
     cur.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_clients_numero_identifiant ON clients(numero_identifiant)"
+    )
+
+    cur.execute(
         """
         CREATE TABLE IF NOT EXISTS factures (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -357,8 +361,30 @@ def get_client(client_id):
     return row
 
 
+def client_exists_by_identifiant(numero_identifiant, exclude_id=None):
+    conn = get_connection()
+    cur = conn.cursor()
+    if exclude_id:
+        cur.execute(
+            "SELECT COUNT(*) FROM clients WHERE numero_identifiant=? AND id!=?",
+            (numero_identifiant, exclude_id),
+        )
+    else:
+        cur.execute(
+            "SELECT COUNT(*) FROM clients WHERE numero_identifiant=?",
+            (numero_identifiant,),
+        )
+    count = cur.fetchone()[0]
+    conn.close()
+    return count > 0
+
+
 def add_client(data):
     """data: dict avec les clés correspondant aux colonnes de la table."""
+    if client_exists_by_identifiant(data["numero_identifiant"]):
+        raise ValueError(
+            f"Un client avec le numéro d'identifiant '{data['numero_identifiant']}' existe déjà."
+        )
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
@@ -390,6 +416,10 @@ def add_client(data):
 
 
 def update_client(client_id, data):
+    if client_exists_by_identifiant(data["numero_identifiant"], exclude_id=client_id):
+        raise ValueError(
+            f"Un autre client avec le numéro d'identifiant '{data['numero_identifiant']}' existe déjà."
+        )
     conn = get_connection()
     cur = conn.cursor()
 
