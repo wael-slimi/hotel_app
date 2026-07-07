@@ -289,6 +289,7 @@ class RoomsTab(tk.Frame):
         win.title("Chambre" if chambre is None else f"Chambre {chambre['numero']}")
         win.resizable(False, False)
         win.transient(self)
+        win.wait_visibility()
         win.grab_set()
 
         ttk.Label(win, text="N° de chambre *").grid(row=0, column=0, sticky="w",
