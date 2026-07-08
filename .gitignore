@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 hotel.db
 photos_chambres/
+fiches_police/
