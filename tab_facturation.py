@@ -680,11 +680,11 @@ class FacturationTab(tk.Frame):
         critere_var.trace_add("write", on_critere_change)
 
         # ----- Tableau des factures -----
-        hist_columns = ("id", "numero", "date", "client", "identifiant", "total", "statut")
+        hist_columns = ("id", "numero", "date", "client", "identifiant", "total", "solde_due", "statut")
         headers_h = {
             "id": "ID", "numero": "N° Facture", "date": "Date",
             "client": "Client", "identifiant": "N° Identifiant",
-            "total": "Montant (TND)", "statut": "Statut"
+            "total": "Montant (TND)", "solde_due": "Solde dû (TND)", "statut": "Statut"
         }
 
         frame = ttk.Frame(win)
@@ -697,8 +697,10 @@ class FacturationTab(tk.Frame):
         hist_tree.column("client", width=180, anchor="w")
         hist_tree.column("identifiant", width=130, anchor="w")
         hist_tree.column("numero", width=120, anchor="center")
+        hist_tree.column("solde_due", width=110, anchor="center")
         hist_tree.tag_configure("paye", foreground="#1F8A4C")
         hist_tree.tag_configure("non_paye", foreground="#C0392B")
+        hist_tree.tag_configure("partiel", foreground="#E67E22")
 
         scrollbar = ttk.Scrollbar(frame, orient="vertical", command=hist_tree.yview)
         hist_tree.configure(yscrollcommand=scrollbar.set)
@@ -762,14 +764,28 @@ class FacturationTab(tk.Frame):
                         identifiant = row["numero_identifiant"]
 
                 est_paye = bool(f["payee"]) if "payee" in f.keys() else False
-                statut_txt = "✅ Payée" if est_paye else "⏳ En attente"
-                tag = "paye" if est_paye else "non_paye"
+                montant_paye = float(f["montant_paye"] or 0) if "montant_paye" in f.keys() else 0
+
+                if est_paye:
+                    statut_txt = "✅ Payée"
+                    solde_txt = ""
+                    tag = "paye"
+                elif montant_paye > 0:
+                    solde = round(f["montant_total"] - montant_paye, 3)
+                    solde_txt = f"{solde:.3f}"
+                    statut_txt = "⚠️ Partielle"
+                    tag = "partiel"
+                else:
+                    solde_txt = ""
+                    statut_txt = "⏳ En attente"
+                    tag = "non_paye"
 
                 hist_tree.insert("", "end", iid=str(f["id"]), tags=(tag,), values=(
                     f["id"], f["numero"],
                     iso_to_date_str(f["date_facture"]) or f["date_facture"],
                     client_nom, identifiant,
                     f"{f['montant_total']:.3f}",
+                    solde_txt,
                     statut_txt,
                 ))
 
