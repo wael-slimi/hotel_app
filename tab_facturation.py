@@ -1,11 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-Module tab_facturation.py - Onglet "Facturation" pour la Gestion d'Hotel.
-Extrait automatiquement du fichier unique gestion_hotel.py, sans aucune
-modification du code original (seuls les imports necessaires ont ete
-ajoutes pour que ce module fonctionne de maniere independante).
-"""
-
 import os
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -17,212 +10,337 @@ from widgets import DateEntry, date_str_to_iso, iso_to_date_str, _formater_prix
 from pdf_facture import generer_facture_pdf, generer_liste_factures_pdf
 from num2words_fr import montant_en_lettres
 
-# ==============================================================================
-# Module : tab_facturation.py
-# ==============================================================================
+# ── Design system palette ──────────────────────────────────────────
+BG          = "#F1F3F6"
+CARD_BG     = "#FFFFFF"
+CARD_BORDER = "#E2E5EA"
+TEXT_PRIMARY = "#1E293B"
+TEXT_SECONDARY = "#64748B"
+PRIMAIRE     = "#4F46E5"
+PRIMAIRE_HVR = "#4338CA"
+SUCCES       = "#10B981"
+SUCCES_HVR   = "#059669"
+ATTENTION    = "#F59E0B"
+DANGER       = "#EF4444"
+NEUTRE_CLAIR = "#F8FAFC"
+
 
 class FacturationTab(tk.Frame):
     def __init__(self, parent, app):
         super().__init__(parent)
         self.app = app
-        self.lignes = []  # liste de dicts: description, quantite, prix_unitaire
+        self.lignes = []
         self.client_map = {}
         self.paiements = {}
         self.facture_id_map = {}
         self.soldes_factures = {}
 
+        self.configure(bg=BG)
         self._build_ui()
         self.refresh()
 
     # ------------------------------------------------------------------
     def _build_ui(self):
-        # ----- Partie haute : sélection client -----
-        top_frame = ttk.LabelFrame(self, text="Client / Séjour")
-        top_frame.pack(fill="x", padx=8, pady=8)
+        # ── Scrollable outer ─────────────────────────────────────────
+        canvas = tk.Canvas(self, bg=BG, bd=0, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
+        self.scroll_frame = tk.Frame(canvas, bg=BG)
 
-        ttk.Label(top_frame, text="Rechercher par CIN :").grid(
-            row=0, column=0, sticky="w", padx=4, pady=4)
+        self.scroll_frame.bind(
+            "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=self.scroll_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        canvas.bind_all("<MouseWheel>", _on_mousewheel, add="+")
+
+        container = self.scroll_frame
+
+        # ══════════════════════════════════════════════════════════════
+        # CARTE 1 — Client / Séjour
+        # ══════════════════════════════════════════════════════════════
+        card1 = tk.Frame(container, bg=CARD_BG, bd=0,
+                         highlightbackground=CARD_BORDER, highlightthickness=1)
+        card1.pack(fill="x", padx=10, pady=(10, 6))
+
+        tk.Label(card1, text="Client / Séjour", bg=CARD_BG, fg=TEXT_PRIMARY,
+                 font=("Segoe UI", 13, "bold")).pack(
+            anchor="w", padx=20, pady=(14, 4))
+
+        c1_grid = tk.Frame(card1, bg=CARD_BG)
+        c1_grid.pack(fill="x", padx=20, pady=(0, 14))
+
+        # Row 0: CIN search
+        tk.Label(c1_grid, text="Rechercher par CIN", bg=CARD_BG,
+                 fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
+            row=0, column=0, sticky="w", padx=(0, 8), pady=4)
         self.cin_search_var = tk.StringVar()
         self.cin_search_var.trace_add("write", lambda *a: self.search_by_cin())
-        cin_entry = ttk.Entry(top_frame, textvariable=self.cin_search_var, width=22)
-        cin_entry.grid(row=0, column=1, padx=4, pady=4, sticky="w")
+        tk.Entry(c1_grid, textvariable=self.cin_search_var, width=22,
+                 font=("Segoe UI", 9), bd=1, relief="solid",
+                 highlightbackground=CARD_BORDER).grid(
+            row=0, column=1, sticky="w", pady=4)
 
+        # Row 0: Client dropdown
+        tk.Label(c1_grid, text="Client", bg=CARD_BG,
+                 fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
+            row=0, column=2, sticky="w", padx=(16, 8), pady=4)
         self.client_var = tk.StringVar()
-        self.combo_client = ttk.Combobox(top_frame, textvariable=self.client_var,
-                                        width=70, state="readonly")
-        self.combo_client.grid(row=0, column=2, padx=4, pady=4, sticky="w")
+        self.combo_client = ttk.Combobox(c1_grid, textvariable=self.client_var,
+                                         width=55, state="readonly")
+        self.combo_client.grid(row=0, column=3, sticky="w", pady=4)
         self.combo_client.bind("<<ComboboxSelected>>", self.on_client_selected)
 
-        ttk.Label(top_frame, text="Chambre :").grid(row=1, column=0, sticky="w",
-                                                      padx=4, pady=4)
+        # Row 1: Chambre
+        tk.Label(c1_grid, text="Chambre", bg=CARD_BG,
+                 fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
+            row=1, column=0, sticky="w", pady=4)
         self.chambre_label_var = tk.StringVar(value="-")
-        ttk.Label(top_frame, textvariable=self.chambre_label_var).grid(
-            row=1, column=1, sticky="w", padx=4, pady=4)
+        tk.Label(c1_grid, textvariable=self.chambre_label_var, bg=CARD_BG,
+                 fg=TEXT_SECONDARY, font=("Segoe UI", 9)).grid(
+            row=1, column=1, columnspan=2, sticky="w", pady=4)
 
-        ttk.Label(top_frame, text="Date d'entrée :").grid(row=2, column=0, sticky="w",
-                                                            padx=4, pady=4)
-        self.date_entree = DateEntry(top_frame, width=12)
-        self.date_entree.grid(row=2, column=1, sticky="w", padx=4, pady=4)
+        # Row 1: Dates
+        tk.Label(c1_grid, text="Entrée", bg=CARD_BG,
+                 fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
+            row=1, column=3, sticky="e", padx=(0, 8), pady=4)
+        self.date_entree = DateEntry(c1_grid, width=12)
+        self.date_entree.grid(row=1, column=4, sticky="w", pady=4)
 
-        ttk.Label(top_frame, text="Date de sortie :").grid(row=3, column=0, sticky="w",
-                                                             padx=4, pady=4)
-        self.date_sortie = DateEntry(top_frame, width=12)
-        self.date_sortie.grid(row=3, column=1, sticky="w", padx=4, pady=4)
+        tk.Label(c1_grid, text="Sortie", bg=CARD_BG,
+                 fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
+            row=1, column=5, sticky="e", padx=(0, 8), pady=4)
+        self.date_sortie = DateEntry(c1_grid, width=12)
+        self.date_sortie.grid(row=1, column=6, sticky="w", pady=4)
 
-        ttk.Button(top_frame, text="Recalculer hébergement",
-                   command=self.recalculer_hebergement).grid(
-            row=2, column=2, rowspan=2, padx=8)
+        tk.Button(c1_grid, text="Recalculer hébergement", bg=PRIMAIRE, fg="white",
+                  font=("Segoe UI", 9, "bold"), bd=0,
+                  activebackground=PRIMAIRE_HVR, activeforeground="white",
+                  cursor="hand2", command=self.recalculer_hebergement).grid(
+            row=1, column=7, padx=(12, 0), pady=4)
 
-        # ----- Partie centrale : lignes de facturation -----
-        mid_frame = ttk.LabelFrame(self, text="Détail de la facture")
-        mid_frame.pack(fill="both", expand=False, padx=8, pady=4)
+        # ══════════════════════════════════════════════════════════════
+        # CARTE 2 — Détail de la facture
+        # ══════════════════════════════════════════════════════════════
+        card2 = tk.Frame(container, bg=CARD_BG, bd=0,
+                         highlightbackground=CARD_BORDER, highlightthickness=1)
+        card2.pack(fill="x", padx=10, pady=6)
+
+        tk.Label(card2, text="Détail de la facture", bg=CARD_BG, fg=TEXT_PRIMARY,
+                 font=("Segoe UI", 13, "bold")).pack(
+            anchor="w", padx=20, pady=(14, 4))
+
+        # Treeview
+        tree_frame = tk.Frame(card2, bg=CARD_BG)
+        tree_frame.pack(fill="x", padx=20, pady=(0, 6))
 
         columns = ("description", "quantite", "prix", "montant", "statut")
-        headers = {"description": "Description", "quantite": "Quantité",
-                "prix": "Prix unitaire (TND)", "montant": "Montant (TND)",
-                "statut": "Statut paiement"}
-        self.tree = ttk.Treeview(mid_frame, columns=columns, show="headings",
-                                height=6)
+        headers = {"description": "DESCRIPTION", "quantite": "QTÉ",
+                   "prix": "PRIX UNIT. (TND)", "montant": "MONTANT (TND)",
+                   "statut": "STATUT PAIEMENT"}
+        self.tree = ttk.Treeview(tree_frame, columns=columns, show="headings",
+                                 height=6)
+        style = ttk.Style()
+        style.configure("Fact.Treeview", font=("Segoe UI", 9), rowheight=26)
+        style.configure("Fact.Treeview.Heading", font=("Segoe UI", 9, "bold"),
+                        foreground=TEXT_SECONDARY)
+        self.tree.configure(style="Fact.Treeview")
+
         for c in columns:
             self.tree.heading(c, text=headers[c])
-            self.tree.column(c, width=150, anchor="center")
-        self.tree.column("description", width=260, anchor="w")
+            self.tree.column(c, width=140, anchor="center")
+        self.tree.column("description", width=280, anchor="w")
         self.tree.column("quantite", width=60, anchor="center")
-        self.tree.column("statut", width=240, anchor="center")
-        self.tree.tag_configure("paye", foreground="#1F8A4C")
-        self.tree.tag_configure("non_paye", foreground="#C0392B")
-        self.tree.tag_configure("partiel", foreground="#E67E22")
-        self.tree.pack(fill="both", expand=True, padx=4, pady=4)
+        self.tree.column("prix", width=120, anchor="center")
+        self.tree.column("montant", width=120, anchor="center")
+        self.tree.column("statut", width=200, anchor="center")
 
-        # Ajout d'une ligne (service supplémentaire)
-        add_frame = ttk.Frame(mid_frame)
-        add_frame.pack(fill="x", padx=4, pady=4)
+        self.tree.tag_configure("odd", background=NEUTRE_CLAIR)
+        self.tree.tag_configure("even", background=CARD_BG)
+        self.tree.tag_configure("paye", foreground=SUCCES)
+        self.tree.tag_configure("non_paye", foreground=DANGER)
+        self.tree.tag_configure("partiel", foreground=ATTENTION)
 
-        ttk.Label(add_frame, text="Description").pack(side="left")
+        # Empty state label
+        self.empty_label = tk.Label(tree_frame, text="Aucune ligne ajoutée",
+                                    bg=CARD_BG, fg=TEXT_SECONDARY,
+                                    font=("Segoe UI", 10, "italic"))
+
+        scrollbar = ttk.Scrollbar(tree_frame, orient="vertical",
+                                  command=self.tree.yview)
+        self.tree.configure(yscrollcommand=scrollbar.set)
+        self.tree.pack(side="left", fill="x", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # Add line form
+        add_frame = tk.Frame(card2, bg=CARD_BG)
+        add_frame.pack(fill="x", padx=20, pady=(0, 14))
+
+        tk.Label(add_frame, text="Description", bg=CARD_BG, fg=TEXT_PRIMARY,
+                 font=("Segoe UI", 9)).pack(side="left")
         self.desc_var = tk.StringVar()
-        ttk.Entry(add_frame, textvariable=self.desc_var, width=30).pack(
-            side="left", padx=4)
+        tk.Entry(add_frame, textvariable=self.desc_var, width=28,
+                 font=("Segoe UI", 9), bd=1, relief="solid",
+                 highlightbackground=CARD_BORDER).pack(side="left", padx=(4, 12))
 
-        ttk.Label(add_frame, text="Qté").pack(side="left")
+        tk.Label(add_frame, text="Qté", bg=CARD_BG, fg=TEXT_PRIMARY,
+                 font=("Segoe UI", 9)).pack(side="left")
         self.qte_var = tk.StringVar(value="1")
-        ttk.Entry(add_frame, textvariable=self.qte_var, width=6).pack(
-            side="left", padx=4)
+        tk.Entry(add_frame, textvariable=self.qte_var, width=6,
+                 font=("Segoe UI", 9), bd=1, relief="solid",
+                 highlightbackground=CARD_BORDER).pack(side="left", padx=(4, 12))
 
-        ttk.Label(add_frame, text="Prix unit. (TND)").pack(side="left")
+        tk.Label(add_frame, text="Prix unit. (TND)", bg=CARD_BG, fg=TEXT_PRIMARY,
+                 font=("Segoe UI", 9)).pack(side="left")
         self.prix_var = tk.StringVar(value="0,000")
-        self.prix_entry = ttk.Entry(add_frame, textvariable=self.prix_var, width=10)
-        self.prix_entry.pack(side="left", padx=4)
+        self.prix_entry = tk.Entry(add_frame, textvariable=self.prix_var, width=10,
+                                   font=("Segoe UI", 9), bd=1, relief="solid",
+                                   highlightbackground=CARD_BORDER)
+        self.prix_entry.pack(side="left", padx=(4, 12))
         self.prix_entry.bind("<FocusOut>", lambda e: _formater_prix(self.prix_var))
 
-        ttk.Button(add_frame, text="Ajouter ligne",
-                   command=self.ajouter_ligne).pack(side="left", padx=8)
-        ttk.Button(add_frame, text="Supprimer ligne sélectionnée",
-                   command=self.supprimer_ligne).pack(side="left", padx=4)
+        tk.Button(add_frame, text="+ Ajouter ligne", bg=PRIMAIRE, fg="white",
+                  font=("Segoe UI", 9, "bold"), bd=0,
+                  activebackground=PRIMAIRE_HVR, activeforeground="white",
+                  cursor="hand2", command=self.ajouter_ligne).pack(
+            side="left", padx=(0, 8))
+        tk.Button(add_frame, text="Supprimer ligne", bg=CARD_BG, fg=DANGER,
+                  font=("Segoe UI", 9), bd=1, relief="solid",
+                  activebackground="#FEF2F2", cursor="hand2",
+                  command=self.supprimer_ligne).pack(side="left")
 
-        # ----- Partie basse : totaux + actions -----
-        # ----- Partie basse : totaux + actions -----
-        bottom_frame = ttk.LabelFrame(self, text="Totaux et validation")
-        bottom_frame.pack(fill="x", padx=8, pady=8)
+        # ══════════════════════════════════════════════════════════════
+        # CARTE 3 — Totaux et validation
+        # ══════════════════════════════════════════════════════════════
+        card3 = tk.Frame(container, bg=CARD_BG, bd=0,
+                         highlightbackground=CARD_BORDER, highlightthickness=1)
+        card3.pack(fill="x", padx=10, pady=6)
 
-        # Ligne 0 : Remise + Mode paiement + Total
-        ttk.Label(bottom_frame, text="Remise (TND) :").grid(
-            row=0, column=0, sticky="w", padx=4, pady=4)
+        tk.Label(card3, text="Totaux et validation", bg=CARD_BG, fg=TEXT_PRIMARY,
+                 font=("Segoe UI", 13, "bold")).pack(
+            anchor="w", padx=20, pady=(14, 4))
+
+        c3_inner = tk.Frame(card3, bg=CARD_BG)
+        c3_inner.pack(fill="x", padx=20, pady=(0, 14))
+
+        # Row 0: Remise + Mode paiement
+        tk.Label(c3_inner, text="Remise (TND)", bg=CARD_BG, fg=TEXT_PRIMARY,
+                 font=("Segoe UI", 9)).grid(
+            row=0, column=0, sticky="w", padx=(0, 8), pady=4)
         self.remise_var = tk.StringVar(value="0,000")
         self.remise_var.trace_add("write", lambda *a: self.update_total())
-        self.remise_entry = ttk.Entry(bottom_frame, textvariable=self.remise_var, width=10)
-        self.remise_entry.grid(row=0, column=1, sticky="w", padx=4, pady=4)
+        self.remise_entry = tk.Entry(c3_inner, textvariable=self.remise_var, width=10,
+                                     font=("Segoe UI", 9), bd=1, relief="solid",
+                                     highlightbackground=CARD_BORDER)
+        self.remise_entry.grid(row=0, column=1, sticky="w", pady=4)
         self.remise_entry.bind("<FocusOut>", lambda e: _formater_prix(self.remise_var))
 
-        ttk.Label(bottom_frame, text="Mode de paiement :").grid(
-            row=0, column=2, sticky="w", padx=4, pady=4)
+        tk.Label(c3_inner, text="Mode de paiement", bg=CARD_BG, fg=TEXT_PRIMARY,
+                 font=("Segoe UI", 9)).grid(
+            row=0, column=2, sticky="w", padx=(20, 8), pady=4)
         self.mode_var = tk.StringVar(value="Espèces")
-        ttk.Combobox(bottom_frame, textvariable=self.mode_var,
+        ttk.Combobox(c3_inner, textvariable=self.mode_var,
                      values=["Espèces", "Chèque", "Carte bancaire", "Virement"],
-                     width=15, state="readonly").grid(row=0, column=3, padx=4, pady=4)
+                     width=16, state="readonly").grid(
+            row=0, column=3, sticky="w", pady=4)
 
-        self.total_var = tk.StringVar(value="Total : 0.000 TND")
-        ttk.Label(bottom_frame, textvariable=self.total_var,
-                font=("Segoe UI", 12, "bold")).grid(
-            row=0, column=4, padx=20, pady=4)
-        ttk.Button(bottom_frame, text="💰 Payer",
-                command=self.ouvrir_paiement).grid(
-            row=0, column=5, padx=8, pady=4)
+        # Row 1: Total KPI card + Payer button
+        total_card = tk.Frame(c3_inner, bg=PRIMAIRE, bd=0)
+        total_card.grid(row=1, column=0, columnspan=2, sticky="w",
+                        padx=(0, 12), pady=6, ipadx=16, ipady=8)
+        tk.Label(total_card, text="TOTAL", bg=PRIMAIRE, fg="#C7D2FE",
+                 font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=4, pady=(4, 0))
+        self.total_var = tk.StringVar(value="0.000 TND")
+        tk.Label(total_card, textvariable=self.total_var, bg=PRIMAIRE, fg="white",
+                 font=("Segoe UI", 16, "bold")).pack(anchor="w", padx=4, pady=(0, 4))
 
-        # Ligne 1 : Montant en lettres
+        tk.Button(c3_inner, text="Payer", bg=SUCCES, fg="white",
+                  font=("Segoe UI", 11, "bold"), bd=0,
+                  activebackground=SUCCES_HVR, activeforeground="white",
+                  cursor="hand2", width=12, command=self.ouvrir_paiement).grid(
+            row=1, column=2, columnspan=2, sticky="w", pady=6)
+
+        # Row 2: Montant en lettres
         self.lettres_var = tk.StringVar(value="")
-        ttk.Label(bottom_frame, textvariable=self.lettres_var,
-                  wraplength=700, font=("Segoe UI", 9, "italic")).grid(
-            row=1, column=0, columnspan=5, sticky="w", padx=4, pady=2)
+        tk.Label(c3_inner, textvariable=self.lettres_var, bg=CARD_BG,
+                 fg=TEXT_SECONDARY, font=("Segoe UI", 9, "italic"),
+                 wraplength=700).grid(
+            row=2, column=0, columnspan=4, sticky="w", pady=(0, 6))
 
-        # Ligne 2 : Case à cocher "Facture payée"
+        # Row 3: Facture payée checkbox
         self.paye_var = tk.BooleanVar(value=False)
-        self.check_paye = ttk.Checkbutton(
-            bottom_frame, text="✅ Facture payée",
-            variable=self.paye_var,
-            command=self.on_toggle_paye
-        )
-        self.check_paye.grid(row=2, column=0, columnspan=2, sticky="w", padx=4, pady=4)
+        self.check_paye = tk.Checkbutton(
+            c3_inner, text="Facture payée", variable=self.paye_var,
+            bg=CARD_BG, fg=TEXT_PRIMARY, font=("Segoe UI", 9),
+            selectcolor=CARD_BG, activebackground=CARD_BG,
+            command=self.on_toggle_paye)
+        self.check_paye.grid(row=3, column=0, columnspan=2, sticky="w", pady=4)
 
-        # Ligne 3 : Boutons
-        action_frame = ttk.Frame(bottom_frame)
-        action_frame.grid(row=3, column=0, columnspan=5, pady=8)
-        ttk.Button(action_frame, text="Générer la facture",
-                   command=self.generer_facture).pack(side="left", padx=4)
-        ttk.Button(action_frame, text="Réinitialiser",
-                   command=self.reinitialiser).pack(side="left", padx=4)
-        ttk.Button(action_frame, text="📋 Historique des factures",
-                   command=self.ouvrir_historique).pack(side="left", padx=4)
-        ttk.Button(action_frame, text="👁️ Voir la facture",          # ← AJOUTER
-                   command=self.voir_facture_client).pack(side="left", padx=4)
+        # Row 4: Action buttons grouped
+        btn_primary = tk.Frame(c3_inner, bg=CARD_BG)
+        btn_primary.grid(row=4, column=0, columnspan=2, sticky="w", pady=(8, 0))
 
-        # ----- Historique des factures -----
-        
+        tk.Button(btn_primary, text="Générer la facture", bg=PRIMAIRE, fg="white",
+                  font=("Segoe UI", 10, "bold"), bd=0,
+                  activebackground=PRIMAIRE_HVR, activeforeground="white",
+                  cursor="hand2", command=self.generer_facture).pack(
+            side="left", padx=(0, 8))
+        tk.Button(btn_primary, text="Réinitialiser", bg=CARD_BG, fg=TEXT_PRIMARY,
+                  font=("Segoe UI", 10), bd=1, relief="solid",
+                  activebackground=NEUTRE_CLAIR, cursor="hand2",
+                  command=self.reinitialiser).pack(side="left")
+
+        btn_secondary = tk.Frame(c3_inner, bg=CARD_BG)
+        btn_secondary.grid(row=4, column=2, columnspan=2, sticky="e", pady=(8, 0))
+
+        tk.Button(btn_secondary, text="Historique des factures", bg=CARD_BG,
+                  fg=TEXT_SECONDARY, font=("Segoe UI", 9), bd=1, relief="solid",
+                  activebackground=NEUTRE_CLAIR, cursor="hand2",
+                  command=self.ouvrir_historique).pack(side="left", padx=(0, 8))
+        tk.Button(btn_secondary, text="Voir la facture", bg=CARD_BG,
+                  fg=TEXT_SECONDARY, font=("Segoe UI", 9), bd=1, relief="solid",
+                  activebackground=NEUTRE_CLAIR, cursor="hand2",
+                  command=self.voir_facture_client).pack(side="left")
 
     # ------------------------------------------------------------------
     def refresh(self):
         self.client_map = {}
         valeurs = []
 
-        # Clients en cours
         for c in db.get_clients("En cours"):
             if not c["chambre_id"]:
                 continue
             texte = (f"[CLIENT] {c['nom']} {c['prenom']} - Chambre "
                      f"{c['chambre_numero']} ({c['numero_identifiant']})")
             self.client_map[texte] = {
-                "id": c["id"],
-                "nom": c["nom"],
-                "prenom": c["prenom"],
+                "id": c["id"], "nom": c["nom"], "prenom": c["prenom"],
                 "numero_identifiant": c["numero_identifiant"],
                 "type_identifiant": c["type_identifiant"],
-                "adresse": c["adresse"],
-                "chambre_id": c["chambre_id"],
+                "adresse": c["adresse"], "chambre_id": c["chambre_id"],
                 "chambre_numero": c["chambre_numero"],
                 "chambre_prix": c["chambre_prix"],
-                "date_entree": c["date_entree"],
-                "date_sortie": c["date_sortie"],
+                "date_entree": c["date_entree"], "date_sortie": c["date_sortie"],
                 "is_reservation": False,
             }
             valeurs.append(texte)
 
-        # Réservations actives
         for r in db.get_reservations("RESERVE"):
             if not r["chambre_id"]:
                 continue
             texte = (f"[RÉSERV.] {r['nom']} {r['prenom']} - Chambre "
                      f"{r['chambre_numero']} ({r['numero_identifiant'] or 'sans ID'})")
             self.client_map[texte] = {
-                "id": r["id"],
-                "nom": r["nom"],
-                "prenom": r["prenom"],
+                "id": r["id"], "nom": r["nom"], "prenom": r["prenom"],
                 "numero_identifiant": r["numero_identifiant"],
                 "type_identifiant": r["type_identifiant"],
-                "adresse": "",
-                "chambre_id": r["chambre_id"],
+                "adresse": "", "chambre_id": r["chambre_id"],
                 "chambre_numero": r["chambre_numero"],
                 "chambre_prix": r["chambre_prix"],
-                "date_entree": r["date_arrivee"],
-                "date_sortie": r["date_depart"],
+                "date_entree": r["date_arrivee"], "date_sortie": r["date_depart"],
                 "is_reservation": True,
             }
             valeurs.append(texte)
@@ -230,13 +348,10 @@ class FacturationTab(tk.Frame):
         if self.client_var.get() not in valeurs:
             self.client_var.set("")
             self.chambre_label_var.set("-")
-        self.combo_client["values"] = valeurs  # ← AJOUTER CETTE LIGNE
+        self.combo_client["values"] = valeurs
 
         self.refresh_historique()
-        
 
-        # Recharger les paiements depuis la base
-        # Recharger les paiements depuis la base
         self.paiements = {}
         self.facture_id_map = {}
         self.soldes_factures = {}
@@ -245,24 +360,21 @@ class FacturationTab(tk.Frame):
         factures_payees = conn.execute(
             "SELECT id, client_id, nom_client FROM factures WHERE payee=1"
         ).fetchall()
-
         factures_partielles = conn.execute(
             "SELECT id, client_id, nom_client, montant_total, montant_paye "
             "FROM factures WHERE payee=0 AND montant_paye>0"
         ).fetchall()
-
         factures_non_payees = conn.execute(
             "SELECT id, client_id, nom_client FROM factures "
             "WHERE payee=0 AND montant_paye=0"
         ).fetchall()
-
         conn.close()
 
         for f in factures_payees:
             for texte, c in self.client_map.items():
                 nom_c = f"{c.get('prenom', '')} {c.get('nom', '')}".strip()
                 if (not c.get("is_reservation") and c.get("id") and c["id"] == f["client_id"]) \
-                or (f["nom_client"] and f["nom_client"].strip() == nom_c):
+                   or (f["nom_client"] and f["nom_client"].strip() == nom_c):
                     self.paiements[texte] = True
                     self.facture_id_map[texte] = f["id"]
                     break
@@ -271,7 +383,7 @@ class FacturationTab(tk.Frame):
             for texte, c in self.client_map.items():
                 nom_c = f"{c.get('prenom', '')} {c.get('nom', '')}".strip()
                 if (not c.get("is_reservation") and c.get("id") and c["id"] == f["client_id"]) \
-                or (f["nom_client"] and f["nom_client"].strip() == nom_c):
+                   or (f["nom_client"] and f["nom_client"].strip() == nom_c):
                     self.paiements[texte] = "partiel"
                     self.facture_id_map[texte] = f["id"]
                     self.soldes_factures[texte] = round(
@@ -284,51 +396,28 @@ class FacturationTab(tk.Frame):
                     continue
                 nom_c = f"{c.get('prenom', '')} {c.get('nom', '')}".strip()
                 if (not c.get("is_reservation") and c.get("id") and c["id"] == f["client_id"]) \
-                or (f["nom_client"] and f["nom_client"].strip() == nom_c):
+                   or (f["nom_client"] and f["nom_client"].strip() == nom_c):
                     self.facture_id_map[texte] = f["id"]
                     break
 
     def search_by_cin(self):
         cin = self.cin_search_var.get().strip()
         if not cin:
-            self.combo_client["values"] = []
+            self.combo_client["values"] = list(self.client_map.keys())
             self.client_var.set("")
             self.chambre_label_var.set("-")
             return
-
         resultats = [texte for texte, c in self.client_map.items()
-                    if cin.lower() in str(c.get("numero_identifiant", "")).lower()]
-
+                     if cin.lower() in str(c.get("numero_identifiant", "")).lower()]
         self.combo_client["values"] = resultats
-
         if len(resultats) == 1:
             self.client_var.set(resultats[0])
             self.on_client_selected()
         else:
             self.client_var.set("")
-    def _filtrer_clients(self):
-        recherche = self.search_client_var.get().strip().lower()
-        if not recherche:
-            # Afficher tous les clients/réservations
-            self.combo_client["values"] = list(self.client_map.keys())
-            return
-
-        filtres = [
-            texte for texte, c in self.client_map.items()
-            if recherche in str(c.get("numero_identifiant", "")).lower()
-        ]
-        self.combo_client["values"] = filtres
-
-        # Sélectionner automatiquement si un seul résultat
-        if len(filtres) == 1:
-            self.client_var.set(filtres[0])
-            self.on_client_selected()
-        elif len(filtres) == 0:
-            self.client_var.set("")
-            self.chambre_label_var.set("-")
 
     def refresh_historique(self):
-        pass  # plus utilisé, l'historique est dans une fenêtre séparée
+        pass
 
     # ------------------------------------------------------------------
     def on_client_selected(self, event=None):
@@ -338,23 +427,19 @@ class FacturationTab(tk.Frame):
         client = self.client_map.get(texte)
         if not client:
             return
-
-        prefix = "📋 Réservation" if client.get("is_reservation") else "👤 Client"
+        prefix = "Réservation" if client.get("is_reservation") else "Client"
         self.chambre_label_var.set(
             f"{prefix} — Chambre {client['chambre_numero']} "
             f"({client['chambre_prix']:.3f} TND / nuit)")
-
         if client["date_entree"]:
             self.date_entree.set(iso_to_date_str(client["date_entree"]))
         else:
             self.date_entree.set_date(date.today())
-
         if client["date_sortie"]:
             self.date_sortie.set(iso_to_date_str(client["date_sortie"]))
         else:
             self.date_sortie.set_date(date.today())
 
-        # Charger les lignes depuis la base si facture existante
         texte_client = self.client_var.get()
         facture_id = self.facture_id_map.get(texte_client)
         if facture_id:
@@ -368,6 +453,7 @@ class FacturationTab(tk.Frame):
             self.refresh_lignes()
         else:
             self.recalculer_hebergement()
+
     def recalculer_hebergement(self):
         if self.paiements.get(self.client_var.get(), False):
             return
@@ -376,24 +462,18 @@ class FacturationTab(tk.Frame):
         if not client:
             messagebox.showwarning("Attention", "Veuillez d'abord sélectionner un client.")
             return
-
         d_entree = self.date_entree.get_date()
         d_sortie = self.date_sortie.get_date()
         if not d_entree or not d_sortie:
             messagebox.showerror("Erreur", "Dates invalides (format JJ/MM/AAAA).")
             return
-
         nb_nuits = (d_sortie - d_entree).days
         if nb_nuits < 1:
             nb_nuits = 1
-
         prix_chambre = client["chambre_prix"]
-
-        # Supprimer toute ligne d'hébergement existante (générée auto)
         self.lignes = [l for l in self.lignes if not l.get("auto")]
-
         description = (f"Hébergement - Chambre {client['chambre_numero']} "
-                        f"({nb_nuits} nuit{'s' if nb_nuits > 1 else ''})")
+                       f"({nb_nuits} nuit{'s' if nb_nuits > 1 else ''})")
         self.lignes.insert(0, {
             "description": description,
             "quantite": nb_nuits,
@@ -407,30 +487,36 @@ class FacturationTab(tk.Frame):
         for item in self.tree.get_children():
             self.tree.delete(item)
 
-        statut_paiement = self.paiements.get(self.client_var.get(), False)
+        # Show/hide empty state
+        if not self.lignes:
+            self.empty_label.place(relx=0.5, rely=0.5, anchor="center")
+        else:
+            self.empty_label.place_forget()
 
-        if statut_paiement == True:
-            statut_texte = "✅ Payée"
+        statut_paiement = self.paiements.get(self.client_var.get(), False)
+        if statut_paiement is True:
+            statut_texte = "Payée"
             tag = "paye"
         elif statut_paiement == "partiel":
             solde = self.soldes_factures.get(self.client_var.get(), 0.0)
-            statut_texte = f"⚠️ Partiellement payée - Reste {solde:.3f} TND".replace(".", ",")
+            statut_texte = f"Partiel — Reste {solde:.3f} TND".replace(".", ",")
             tag = "partiel"
         else:
-            statut_texte = "⏳ En attente"
+            statut_texte = "En attente"
             tag = "non_paye"
 
         for index, ligne in enumerate(self.lignes):
             montant = ligne["quantite"] * ligne["prix_unitaire"]
+            row_tag = "odd" if index % 2 else "even"
             self.tree.insert("", "end", iid=str(index), values=(
                 ligne["description"], f"{ligne['quantite']:g}",
                 f"{ligne['prix_unitaire']:.3f}".replace(".", ","),
                 f"{montant:.3f}".replace(".", ","),
                 statut_texte,
-            ), tags=(tag,))
+            ), tags=(row_tag, tag))
         self.update_total()
+
     def _verifier_paye(self):
-        """Retourne True si la facture est payée (action bloquée)."""
         if self.paiements.get(self.client_var.get(), False):
             messagebox.showwarning(
                 "Action impossible",
@@ -452,7 +538,6 @@ class FacturationTab(tk.Frame):
         except ValueError:
             messagebox.showerror("Erreur", "Quantité et prix doivent être numériques.")
             return
-
         self.lignes.append({
             "description": description,
             "quantite": quantite,
@@ -484,7 +569,7 @@ class FacturationTab(tk.Frame):
         total = round(sous_total - remise, 3)
         if total < 0:
             total = 0.0
-        self.total_var.set(f"Total : {total:.3f} TND")
+        self.total_var.set(f"{total:.3f} TND")
         if total > 0:
             self.lettres_var.set(
                 "Arrêtée la présente facture à la somme de : "
@@ -499,8 +584,9 @@ class FacturationTab(tk.Frame):
         self.lignes = []
         self.remise_var.set("0,000")
         self.mode_var.set("Espèces")
-        self.paye_var.set(False)   # ← ajouter cette ligne
+        self.paye_var.set(False)
         self.refresh_lignes()
+
     def on_toggle_paye(self):
         if self.paye_var.get():
             confirme = messagebox.askyesno(
@@ -511,7 +597,6 @@ class FacturationTab(tk.Frame):
                 self.paye_var.set(False)
             else:
                 self.paiements[self.client_var.get()] = True
-                # Sauvegarder en base
                 facture_id = self.facture_id_map.get(self.client_var.get())
                 if facture_id:
                     db.set_facture_payee(facture_id)
@@ -529,9 +614,6 @@ class FacturationTab(tk.Frame):
             messagebox.showerror("Erreur", "Veuillez sélectionner un client.")
             return
 
-        # Une facture ne peut être générée qu'une seule fois pour un même
-        # client/séjour. Si une facture existe déjà, on ne la recrée pas :
-        # on l'affiche simplement en lecture seule.
         facture_existante_id = self.facture_id_map.get(texte)
         if facture_existante_id:
             facture, lignes = db.get_facture(facture_existante_id)
@@ -548,14 +630,12 @@ class FacturationTab(tk.Frame):
         if not self.lignes:
             messagebox.showerror("Erreur", "Aucune ligne de facturation.")
             return
-
         d_entree = self.date_entree.get_date()
         d_sortie = self.date_sortie.get_date()
         if not d_entree or not d_sortie:
             messagebox.showerror("Erreur", "Dates invalides (format JJ/MM/AAAA).")
             return
         nb_nuits = max((d_sortie - d_entree).days, 1)
-
         try:
             remise = float(self.remise_var.get().replace(",", "."))
         except ValueError:
@@ -563,9 +643,6 @@ class FacturationTab(tk.Frame):
 
         lignes_db = [(l["description"], l["quantite"], l["prix_unitaire"])
                      for l in self.lignes]
-
-        # Si c'est une réservation, on passe client_id=None
-        # (pas encore de client créé dans la table clients)
         client_id = None if client.get("is_reservation") else client["id"]
         nom_client = f"{client['prenom']} {client['nom']}".strip()
 
@@ -589,7 +666,7 @@ class FacturationTab(tk.Frame):
             db.set_facture_payee(facture_id)
             self.paiements[self.client_var.get()] = True
 
-        statut_paiement = "✅ Payée" if self.paye_var.get() else "⏳ En attente de paiement"
+        statut_paiement = "Payée" if self.paye_var.get() else "En attente de paiement"
         messagebox.showinfo(
             "Facture créée",
             f"Facture {numero} créée avec succès.\n"
@@ -600,11 +677,10 @@ class FacturationTab(tk.Frame):
         self.app.refresh_stats_tab()
 
         if messagebox.askyesno("Export PDF",
-                                "Voulez-vous générer le PDF de cette facture ?"):
+                               "Voulez-vous générer le PDF de cette facture ?"):
             self._exporter_pdf(facture_id, numero)
 
     # ------------------------------------------------------------------
-   
     def _exporter_pdf(self, facture_id, numero):
         nom_fichier_defaut = f"Facture_{numero}.pdf"
         chemin = filedialog.asksaveasfilename(
@@ -620,77 +696,98 @@ class FacturationTab(tk.Frame):
         except Exception as exc:
             messagebox.showerror("Erreur", f"Impossible de générer le PDF : {exc}")
             return
-
         messagebox.showinfo("Succès", f"Facture exportée : {chemin}")
-
-        # Ouvrir automatiquement le PDF si possible (Windows)
         try:
             if os.name == "nt":
                 os.startfile(chemin)
         except Exception:
             pass
+
     def ouvrir_historique(self):
         win = tk.Toplevel(self)
         win.title("Historique des factures")
         win.geometry("1100x700")
         win.transient(self)
+        win.configure(bg=BG)
 
-        # ----- Barre de filtres -----
-        filtre_frame = ttk.LabelFrame(win, text="Filtres")
-        filtre_frame.pack(fill="x", padx=8, pady=8)
+        # Filter card
+        filtre_card = tk.Frame(win, bg=CARD_BG, bd=0,
+                               highlightbackground=CARD_BORDER, highlightthickness=1)
+        filtre_card.pack(fill="x", padx=10, pady=10)
 
-        ttk.Label(filtre_frame, text="Critère :").grid(row=0, column=0, padx=6, pady=6, sticky="w")
+        tk.Label(filtre_card, text="Filtres", bg=CARD_BG, fg=TEXT_PRIMARY,
+                 font=("Segoe UI", 13, "bold")).pack(
+            anchor="w", padx=20, pady=(10, 4))
+
+        ff = tk.Frame(filtre_card, bg=CARD_BG)
+        ff.pack(fill="x", padx=20, pady=(0, 10))
+
+        tk.Label(ff, text="Critère", bg=CARD_BG, fg=TEXT_PRIMARY,
+                 font=("Segoe UI", 9)).pack(side="left")
         critere_var = tk.StringVar(value="Toutes les factures")
         combo_critere = ttk.Combobox(
-            filtre_frame, textvariable=critere_var,
+            ff, textvariable=critere_var,
             values=["Toutes les factures", "Par date", "Par N° identifiant client"],
-            width=25, state="readonly"
-        )
-        combo_critere.grid(row=0, column=1, padx=6, pady=6, sticky="w")
+            width=25, state="readonly")
+        combo_critere.pack(side="left", padx=6)
 
-        lbl_debut = ttk.Label(filtre_frame, text="Du :")
-        date_debut = DateEntry(filtre_frame, width=12)
-        lbl_fin = ttk.Label(filtre_frame, text="Au :")
-        date_fin = DateEntry(filtre_frame, width=12)
+        lbl_debut = tk.Label(ff, text="Du", bg=CARD_BG, fg=TEXT_PRIMARY,
+                             font=("Segoe UI", 9))
+        date_debut = DateEntry(ff, width=12)
+        lbl_fin = tk.Label(ff, text="Au", bg=CARD_BG, fg=TEXT_PRIMARY,
+                           font=("Segoe UI", 9))
+        date_fin = DateEntry(ff, width=12)
         date_debut.set_date(date.today().replace(day=1))
 
-        lbl_cin = ttk.Label(filtre_frame, text="N° identifiant :")
+        lbl_cin = tk.Label(ff, text="N° identifiant", bg=CARD_BG, fg=TEXT_PRIMARY,
+                           font=("Segoe UI", 9))
         cin_var = tk.StringVar()
-        entry_cin = ttk.Entry(filtre_frame, textvariable=cin_var, width=22)
+        entry_cin = tk.Entry(ff, textvariable=cin_var, width=22,
+                             font=("Segoe UI", 9), bd=1, relief="solid",
+                             highlightbackground=CARD_BORDER)
 
-        ttk.Button(
-            filtre_frame, text="🔍 Filtrer",
-            command=lambda: appliquer_filtre()
-        ).grid(row=0, column=6, padx=12, pady=6)
+        filtre_btn = tk.Button(ff, text="Filtrer", bg=PRIMAIRE, fg="white",
+                               font=("Segoe UI", 9, "bold"), bd=0,
+                               activebackground=PRIMAIRE_HVR, activeforeground="white",
+                               cursor="hand2",
+                               command=lambda: appliquer_filtre())
+        filtre_btn.pack(side="left", padx=12)
 
         def on_critere_change(*args):
             for w in (lbl_debut, date_debut, lbl_fin, date_fin, lbl_cin, entry_cin):
-                w.grid_remove()
-
+                w.pack_forget()
             c = critere_var.get()
             if c == "Par date":
-                lbl_debut.grid(row=0, column=2, padx=4, pady=6, sticky="w")
-                date_debut.grid(row=0, column=3, padx=4, pady=6, sticky="w")
-                lbl_fin.grid(row=0, column=4, padx=4, pady=6, sticky="w")
-                date_fin.grid(row=0, column=5, padx=4, pady=6, sticky="w")
+                lbl_debut.pack(side="left", padx=(12, 4))
+                date_debut.pack(side="left")
+                lbl_fin.pack(side="left", padx=(12, 4))
+                date_fin.pack(side="left")
             elif c == "Par N° identifiant client":
-                lbl_cin.grid(row=0, column=2, padx=4, pady=6, sticky="w")
-                entry_cin.grid(row=0, column=3, padx=4, pady=6, sticky="w")
+                lbl_cin.pack(side="left", padx=(12, 4))
+                entry_cin.pack(side="left")
 
         critere_var.trace_add("write", on_critere_change)
 
-        # ----- Tableau des factures -----
-        hist_columns = ("id", "numero", "date", "client", "identifiant", "total", "solde_due", "statut")
+        # Table card
+        table_card = tk.Frame(win, bg=CARD_BG, bd=0,
+                              highlightbackground=CARD_BORDER, highlightthickness=1)
+        table_card.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+        hist_columns = ("id", "numero", "date", "client", "identifiant",
+                        "total", "solde_due", "statut")
         headers_h = {
-            "id": "ID", "numero": "N° Facture", "date": "Date",
-            "client": "Client", "identifiant": "N° Identifiant",
-            "total": "Montant (TND)", "solde_due": "Solde dû (TND)", "statut": "Statut"
+            "id": "ID", "numero": "N° FACTURE", "date": "DATE",
+            "client": "CLIENT", "identifiant": "N° IDENTIFIANT",
+            "total": "MONTANT (TND)", "solde_due": "SOLDE DÛ (TND)",
+            "statut": "STATUT",
         }
+        hist_tree = ttk.Treeview(table_card, columns=hist_columns,
+                                 show="headings", height=18)
+        style.configure("Hist.Treeview", font=("Segoe UI", 9), rowheight=26)
+        style.configure("Hist.Treeview.Heading", font=("Segoe UI", 9, "bold"),
+                        foreground=TEXT_SECONDARY)
+        hist_tree.configure(style="Hist.Treeview")
 
-        frame = ttk.Frame(win)
-        frame.pack(fill="both", expand=True, padx=8, pady=4)
-
-        hist_tree = ttk.Treeview(frame, columns=hist_columns, show="headings", height=18)
         for c in hist_columns:
             hist_tree.heading(c, text=headers_h[c])
             hist_tree.column(c, width=100, anchor="center")
@@ -698,25 +795,28 @@ class FacturationTab(tk.Frame):
         hist_tree.column("identifiant", width=130, anchor="w")
         hist_tree.column("numero", width=120, anchor="center")
         hist_tree.column("solde_due", width=110, anchor="center")
-        hist_tree.tag_configure("paye", foreground="#1F8A4C")
-        hist_tree.tag_configure("non_paye", foreground="#C0392B")
-        hist_tree.tag_configure("partiel", foreground="#E67E22")
 
-        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=hist_tree.yview)
+        hist_tree.tag_configure("odd", background=NEUTRE_CLAIR)
+        hist_tree.tag_configure("even", background=CARD_BG)
+        hist_tree.tag_configure("paye", foreground=SUCCES)
+        hist_tree.tag_configure("non_paye", foreground=DANGER)
+        hist_tree.tag_configure("partiel", foreground=ATTENTION)
+
+        scrollbar = ttk.Scrollbar(table_card, orient="vertical",
+                                  command=hist_tree.yview)
         hist_tree.configure(yscrollcommand=scrollbar.set)
-        hist_tree.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        hist_tree.pack(side="left", fill="both", expand=True, padx=(14, 0), pady=10)
+        scrollbar.pack(side="right", fill="y", padx=(0, 14), pady=10)
 
         compteur_var = tk.StringVar()
-        ttk.Label(win, textvariable=compteur_var,
-                font=("Segoe UI", 9, "italic")).pack(anchor="e", padx=8)
+        tk.Label(table_card, textvariable=compteur_var, bg=CARD_BG,
+                 fg=TEXT_SECONDARY, font=("Segoe UI", 9),
+                 anchor="e").pack(fill="x", padx=14, pady=(0, 10))
 
         def appliquer_filtre():
             for item in hist_tree.get_children():
                 hist_tree.delete(item)
-
             c = critere_var.get()
-
             if c == "Toutes les factures":
                 factures = db.get_factures()
             elif c == "Par date":
@@ -727,7 +827,8 @@ class FacturationTab(tk.Frame):
                 cin = cin_var.get().strip().lower()
                 if not cin:
                     messagebox.showwarning(
-                        "Attention", "Veuillez saisir un numéro d'identifiant.", parent=win)
+                        "Attention", "Veuillez saisir un numéro d'identifiant.",
+                        parent=win)
                     return
                 toutes = db.get_factures()
                 conn = get_connection()
@@ -736,8 +837,7 @@ class FacturationTab(tk.Frame):
                     if f["client_id"]:
                         client_row = conn.execute(
                             "SELECT numero_identifiant FROM clients WHERE id=?",
-                            (f["client_id"],)
-                        ).fetchone()
+                            (f["client_id"],)).fetchone()
                         if client_row and cin in str(client_row["numero_identifiant"]).lower():
                             factures.append(f)
                     else:
@@ -747,18 +847,16 @@ class FacturationTab(tk.Frame):
             else:
                 factures = db.get_factures()
 
-            for f in factures:
+            for i, f in enumerate(factures):
                 client_nom = f"{f['prenom'] or ''} {f['nom'] or ''}".strip()
                 if not client_nom:
                     client_nom = f["nom_client"] or "—"
-
                 identifiant = "—"
                 if f["client_id"]:
                     conn = get_connection()
                     row = conn.execute(
                         "SELECT numero_identifiant FROM clients WHERE id=?",
-                        (f["client_id"],)
-                    ).fetchone()
+                        (f["client_id"],)).fetchone()
                     conn.close()
                     if row:
                         identifiant = row["numero_identifiant"]
@@ -767,72 +865,74 @@ class FacturationTab(tk.Frame):
                 montant_paye = float(f["montant_paye"] or 0) if "montant_paye" in f.keys() else 0
 
                 if est_paye:
-                    statut_txt = "✅ Payée"
+                    statut_txt = "Payée"
                     solde_txt = ""
                     tag = "paye"
                 elif montant_paye > 0:
                     solde = round(f["montant_total"] - montant_paye, 3)
                     solde_txt = f"{solde:.3f}"
-                    statut_txt = "⚠️ Partielle"
+                    statut_txt = "Partielle"
                     tag = "partiel"
                 else:
                     solde_txt = ""
-                    statut_txt = "⏳ En attente"
+                    statut_txt = "En attente"
                     tag = "non_paye"
 
-                hist_tree.insert("", "end", iid=str(f["id"]), tags=(tag,), values=(
+                row_tag = "odd" if i % 2 else "even"
+                hist_tree.insert("", "end", iid=str(f["id"]),
+                                 tags=(row_tag, tag), values=(
                     f["id"], f["numero"],
                     iso_to_date_str(f["date_facture"]) or f["date_facture"],
                     client_nom, identifiant,
                     f"{f['montant_total']:.3f}",
-                    solde_txt,
-                    statut_txt,
+                    solde_txt, statut_txt,
                 ))
-
             nb = len(hist_tree.get_children())
             compteur_var.set(f"{nb} facture(s) trouvée(s)")
 
         appliquer_filtre()
 
-        # ----- Boutons bas -----
-        btn_frame = ttk.Frame(win)
-        btn_frame.pack(pady=6)
-        ttk.Button(
-            btn_frame, text="👁️ Voir la facture",
-            command=lambda: self._voir_depuis_historique(hist_tree)
-        ).pack(side="left", padx=4)
-        ttk.Button(
-            btn_frame, text="📄 Exporter en PDF",
-            command=lambda: self._exporter_depuis_historique(hist_tree)
-        ).pack(side="left", padx=4)
-        ttk.Button(
-            btn_frame, text="🖨️ Imprimer la liste",
-            command=lambda: self._imprimer_liste_factures(hist_tree)
-        ).pack(side="left", padx=4)
-        ttk.Button(btn_frame, text="Fermer",
-                command=win.destroy).pack(side="left", padx=4)
+        # Bottom buttons
+        btn_frame = tk.Frame(win, bg=CARD_BG)
+        btn_frame.pack(fill="x", padx=10, pady=(0, 10))
+
+        tk.Button(btn_frame, text="Voir la facture", bg=PRIMAIRE, fg="white",
+                  font=("Segoe UI", 9, "bold"), bd=0,
+                  activebackground=PRIMAIRE_HVR, activeforeground="white",
+                  cursor="hand2",
+                  command=lambda: self._voir_depuis_historique(hist_tree)).pack(
+            side="left", padx=(14, 8), pady=10)
+        tk.Button(btn_frame, text="Exporter en PDF", bg=CARD_BG, fg=TEXT_PRIMARY,
+                  font=("Segoe UI", 9), bd=1, relief="solid",
+                  activebackground=NEUTRE_CLAIR, cursor="hand2",
+                  command=lambda: self._exporter_depuis_historique(hist_tree)).pack(
+            side="left", padx=4, pady=10)
+        tk.Button(btn_frame, text="Imprimer la liste", bg=CARD_BG, fg=TEXT_PRIMARY,
+                  font=("Segoe UI", 9), bd=1, relief="solid",
+                  activebackground=NEUTRE_CLAIR, cursor="hand2",
+                  command=lambda: self._imprimer_liste_factures(hist_tree)).pack(
+            side="left", padx=4, pady=10)
+        tk.Button(btn_frame, text="Fermer", bg=CARD_BG, fg=TEXT_PRIMARY,
+                  font=("Segoe UI", 9), bd=1, relief="solid",
+                  activebackground=NEUTRE_CLAIR, cursor="hand2",
+                  command=win.destroy).pack(side="right", padx=14, pady=10)
+
     def _voir_depuis_historique(self, hist_tree):
         selection = hist_tree.selection()
         if not selection:
-            messagebox.showwarning("Attention",
-                                "Veuillez sélectionner une facture.")
+            messagebox.showwarning("Attention", "Veuillez sélectionner une facture.")
             return
         facture_id = int(selection[0])
         facture, lignes = db.get_facture(facture_id)
         if facture is None:
             messagebox.showerror("Erreur", "Facture introuvable en base.")
             return
-
-        # Vérifier si la facture est payée
-        est_paye = bool(facture["payee"]) if "payee" in facture.keys() else False
         self._afficher_fenetre_facture(facture, lignes, facture_id)
-
 
     def _exporter_depuis_historique(self, hist_tree):
         selection = hist_tree.selection()
         if not selection:
-            messagebox.showwarning("Attention",
-                                "Veuillez sélectionner une facture.")
+            messagebox.showwarning("Attention", "Veuillez sélectionner une facture.")
             return
         facture_id = int(selection[0])
         facture, _ = db.get_facture(facture_id)
@@ -846,16 +946,15 @@ class FacturationTab(tk.Frame):
                 "Le PDF ne peut être généré que pour une facture payée.")
             return
         self._exporter_pdf(facture_id, facture["numero"])
+
     def _imprimer_liste_factures(self, hist_tree):
         items = hist_tree.get_children()
         if not items:
             messagebox.showwarning("Attention", "Aucune facture à imprimer.")
             return
-
         factures_data = []
         for iid in items:
             valeurs = hist_tree.item(iid)["values"]
-            # valeurs = (id, numero, date, client, identifiant, total, statut)
             numero, date_f, client, identifiant, total_str, statut = valeurs[1:]
             try:
                 montant = float(str(total_str).replace(",", "."))
@@ -872,19 +971,18 @@ class FacturationTab(tk.Frame):
         )
         if not chemin:
             return
-
         try:
             generer_liste_factures_pdf(factures_data, chemin)
         except Exception as exc:
             messagebox.showerror("Erreur", f"Impossible de générer le PDF : {exc}")
             return
-
         messagebox.showinfo("Succès", f"Liste exportée : {chemin}")
         try:
             if os.name == "nt":
                 os.startfile(chemin)
         except Exception:
             pass
+
     def ouvrir_paiement(self):
         if not self.client_var.get():
             messagebox.showwarning("Attention", "Veuillez sélectionner un client.")
@@ -896,7 +994,6 @@ class FacturationTab(tk.Frame):
             messagebox.showinfo("Information", "Cette facture est déjà payée.")
             return
 
-        # Générer la facture automatiquement si pas encore fait
         if not self.facture_id_map.get(self.client_var.get()):
             texte = self.client_var.get()
             client = self.client_map.get(texte)
@@ -910,7 +1007,8 @@ class FacturationTab(tk.Frame):
                 remise = float(self.remise_var.get().replace(",", "."))
             except ValueError:
                 remise = 0.0
-            lignes_db = [(l["description"], l["quantite"], l["prix_unitaire"]) for l in self.lignes]
+            lignes_db = [(l["description"], l["quantite"], l["prix_unitaire"])
+                         for l in self.lignes]
             client_id = None if client.get("is_reservation") else client["id"]
             nom_client = f"{client['prenom']} {client['nom']}".strip()
             facture_id, numero, total = db.create_facture(
@@ -927,19 +1025,19 @@ class FacturationTab(tk.Frame):
             self.facture_id_map[self.client_var.get()] = facture_id
 
         win = tk.Toplevel(self)
-        win.title("💰 Paiement de la facture")
+        win.title("Paiement de la facture")
         win.resizable(False, False)
         win.transient(self)
         win.grab_set()
+        win.configure(bg=BG)
 
-        BLEU = "#1F4E79"
-        header = tk.Frame(win, bg=BLEU)
+        header = tk.Frame(win, bg=PRIMAIRE)
         header.pack(fill="x")
-        tk.Label(header, text="Paiement de la facture", bg=BLEU, fg="white",
-                font=("Segoe UI", 13, "bold")).pack(pady=12, padx=16)
+        tk.Label(header, text="Paiement de la facture", bg=PRIMAIRE, fg="white",
+                 font=("Segoe UI", 13, "bold")).pack(pady=12, padx=16)
 
-        frame = ttk.Frame(win)
-        frame.pack(padx=20, pady=12)
+        frame = tk.Frame(win, bg=CARD_BG)
+        frame.pack(fill="both", expand=True, padx=10, pady=10)
 
         sous_total = sum(l["quantite"] * l["prix_unitaire"] for l in self.lignes)
         try:
@@ -948,27 +1046,35 @@ class FacturationTab(tk.Frame):
             remise = 0.0
         total = round(sous_total - remise, 3)
 
-        ttk.Label(frame, text="Montant total à payer :",
-                font=("Segoe UI", 10, "bold")).grid(row=0, column=0, sticky="w", pady=6)
-        ttk.Label(frame, text=f"{total:.3f} TND",
-                font=("Segoe UI", 12, "bold"),
-                foreground="#1F4E79").grid(row=0, column=1, sticky="w", padx=12, pady=6)
+        tk.Label(frame, text="Montant total à payer", bg=CARD_BG,
+                 fg=TEXT_PRIMARY, font=("Segoe UI", 10, "bold")).grid(
+            row=0, column=0, sticky="w", pady=8, padx=16)
+        tk.Label(frame, text=f"{total:.3f} TND", bg=CARD_BG, fg=PRIMAIRE,
+                 font=("Segoe UI", 14, "bold")).grid(
+            row=0, column=1, sticky="w", padx=16, pady=8)
 
-        ttk.Label(frame, text="Mode de paiement :").grid(row=1, column=0, sticky="w", pady=6)
+        tk.Label(frame, text="Mode de paiement", bg=CARD_BG,
+                 fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
+            row=1, column=0, sticky="w", pady=6, padx=16)
         mode_var = tk.StringVar(value=self.mode_var.get())
         ttk.Combobox(frame, textvariable=mode_var,
-                    values=["Espèces", "Chèque", "Carte bancaire", "Virement"],
-                    width=20, state="readonly").grid(row=1, column=1, sticky="w", padx=12, pady=6)
+                     values=["Espèces", "Chèque", "Carte bancaire", "Virement"],
+                     width=20, state="readonly").grid(
+            row=1, column=1, sticky="w", padx=16, pady=6)
 
-        ttk.Label(frame, text="Montant reçu (TND) :").grid(row=2, column=0, sticky="w", pady=6)
+        tk.Label(frame, text="Montant reçu (TND)", bg=CARD_BG,
+                 fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
+            row=2, column=0, sticky="w", pady=6, padx=16)
         recu_var = tk.StringVar(value=f"{total:.3f}".replace(".", ","))
-        ttk.Entry(frame, textvariable=recu_var, width=15).grid(
-            row=2, column=1, sticky="w", padx=12, pady=6)
+        tk.Entry(frame, textvariable=recu_var, width=15,
+                 font=("Segoe UI", 9), bd=1, relief="solid",
+                 highlightbackground=CARD_BORDER).grid(
+            row=2, column=1, sticky="w", padx=16, pady=6)
 
         monnaie_var = tk.StringVar(value="Monnaie à rendre : 0.000 TND")
-        ttk.Label(frame, textvariable=monnaie_var,
-                font=("Segoe UI", 10, "italic"),
-                foreground="#1F8A4C").grid(row=3, column=0, columnspan=2, pady=6)
+        tk.Label(frame, textvariable=monnaie_var, bg=CARD_BG, fg=SUCCES,
+                 font=("Segoe UI", 10, "italic")).grid(
+            row=3, column=0, columnspan=2, pady=8, padx=16)
 
         def calculer_monnaie(*args):
             try:
@@ -978,7 +1084,7 @@ class FacturationTab(tk.Frame):
                     monnaie_var.set(f"Monnaie à rendre : {monnaie:.3f} TND")
                 else:
                     solde = round(total - recu, 3)
-                    monnaie_var.set(f"⚠️ Paiement partiel — Solde restant : {solde:.3f} TND")
+                    monnaie_var.set(f"Paiement partiel — Solde restant : {solde:.3f} TND")
             except ValueError:
                 monnaie_var.set("Montant reçu invalide")
 
@@ -1000,17 +1106,13 @@ class FacturationTab(tk.Frame):
             client = self.client_map.get(texte)
 
             if recu >= total:
-                # ----- Paiement complet -----
                 self.mode_var.set(mode_var.get())
                 self.paye_var.set(True)
                 self.paiements[texte] = True
-
                 if facture_id:
                     db.set_facture_payee(facture_id)
-
                 if client and not client.get("is_reservation") and client.get("id"):
                     db.set_client_solde(client["id"], 0.0)
-
                 self.refresh_lignes()
                 self.app.refresh_clients_tab()
                 win.destroy()
@@ -1019,19 +1121,13 @@ class FacturationTab(tk.Frame):
                     f"Paiement complet de {total:.3f} TND confirmé.\n"
                     f"Mode : {mode_var.get()}\n"
                     f"Monnaie rendue : {round(recu - total, 3):.3f} TND")
-
             else:
-                # ----- Paiement partiel -----
                 solde_restant = round(total - recu, 3)
-
                 if facture_id:
                     db.set_facture_paiement_partiel(facture_id, recu)
-
                 if client and not client.get("is_reservation") and client.get("id"):
                     db.set_client_solde(client["id"], solde_restant)
-
                 self.paiements[texte] = "partiel"
-
                 self.refresh_lignes()
                 self.app.refresh_clients_tab()
                 win.destroy()
@@ -1041,18 +1137,22 @@ class FacturationTab(tk.Frame):
                     f"Solde restant : {solde_restant:.3f} TND\n"
                     f"Le solde a été ajouté à la fiche client.")
 
-        btn_frame = ttk.Frame(win)
-        btn_frame.pack(pady=12)
-        ttk.Button(btn_frame, text="✅ Confirmer le paiement",
-                command=confirmer_paiement).pack(side="left", padx=6)
-        ttk.Button(btn_frame, text="Annuler",
-                command=win.destroy).pack(side="left", padx=6)
+        btn_f = tk.Frame(frame, bg=CARD_BG)
+        btn_f.grid(row=4, column=0, columnspan=2, pady=14)
+        tk.Button(btn_f, text="Confirmer le paiement", bg=SUCCES, fg="white",
+                  font=("Segoe UI", 10, "bold"), bd=0,
+                  activebackground=SUCCES_HVR, activeforeground="white",
+                  cursor="hand2", command=confirmer_paiement).pack(side="left", padx=6)
+        tk.Button(btn_f, text="Annuler", bg=CARD_BG, fg=TEXT_PRIMARY,
+                  font=("Segoe UI", 10), bd=1, relief="solid",
+                  activebackground=NEUTRE_CLAIR, cursor="hand2",
+                  command=win.destroy).pack(side="left", padx=6)
+
     def voir_facture_client(self):
         texte = self.client_var.get()
         if not texte:
             messagebox.showwarning("Attention", "Veuillez sélectionner un client.")
             return
-
         facture_id = self.facture_id_map.get(texte)
         if not facture_id:
             messagebox.showwarning(
@@ -1060,33 +1160,24 @@ class FacturationTab(tk.Frame):
                 "Aucune facture trouvée pour ce client.\n"
                 "Générez d'abord la facture.")
             return
-
-        
-
         facture, lignes = db.get_facture(facture_id)
         if facture is None:
             messagebox.showerror("Erreur", "Facture introuvable en base.")
             return
-
         self._afficher_fenetre_facture(facture, lignes, facture_id)
-
 
     def _afficher_fenetre_facture(self, facture, lignes, facture_id):
         import tempfile
         import subprocess
         import platform
 
-        # Générer le PDF dans un dossier temporaire
         nom_fichier = f"Facture_{facture['numero']}.pdf"
         chemin = os.path.join(tempfile.gettempdir(), nom_fichier)
-
         try:
             generer_facture_pdf(facture_id, chemin)
         except Exception as exc:
             messagebox.showerror("Erreur", f"Impossible de générer l'aperçu : {exc}")
             return
-
-        # Ouvrir le PDF avec le lecteur par défaut du système
         try:
             if platform.system() == "Windows":
                 os.startfile(chemin)
