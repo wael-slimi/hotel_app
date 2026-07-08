@@ -45,80 +45,83 @@ class ClientsTab(tk.Frame):
         tk.Label(form_card, text="Fiche client", bg=CARD_BG, fg=TEXT_PRIMARY,
                  font=("Segoe UI", 13, "bold")).pack(anchor="w", padx=18, pady=(14, 4))
 
+        form_grid = tk.Frame(form_card, bg=CARD_BG)
+        form_grid.pack(fill="both", expand=True)
+
         self.vars = {}
         r = 0
 
         # ── Section: Identité ───────────────────────────────────────
-        self._section_header(form_card, "Identité", r); r += 1
+        self._section_header(form_grid, "Identité", r); r += 1
 
-        self._add_field(form_card, r, "Nom *", "nom"); r += 1
-        self._add_field(form_card, r, "Prénom *", "prenom"); r += 1
+        self._add_field(form_grid, r, "Nom *", "nom"); r += 1
+        self._add_field(form_grid, r, "Prénom *", "prenom"); r += 1
 
-        tk.Label(form_card, text="Type d'identifiant *", bg=CARD_BG,
+        tk.Label(form_grid, text="Type d'identifiant *", bg=CARD_BG,
                  fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
             row=r, column=0, sticky="w", padx=18, pady=3)
         self.vars["type_identifiant"] = tk.StringVar(value=TYPES_IDENTIFIANT[0])
-        ttk.Combobox(form_card, textvariable=self.vars["type_identifiant"],
+        ttk.Combobox(form_grid, textvariable=self.vars["type_identifiant"],
                      values=TYPES_IDENTIFIANT, width=21,
                      state="readonly").grid(row=r, column=1, sticky="w", padx=4, pady=3)
         r += 1
 
-        self._add_field(form_card, r, "N° identifiant *", "numero_identifiant"); r += 1
+        self._add_field(form_grid, r, "N° identifiant *", "numero_identifiant"); r += 1
 
-        tk.Label(form_card, text="Date de naissance", bg=CARD_BG,
+        tk.Label(form_grid, text="Date de naissance", bg=CARD_BG,
                  fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
             row=r, column=0, sticky="w", padx=18, pady=3)
-        self.date_naissance = DateEntry(form_card, width=12)
+        self.date_naissance = DateEntry(form_grid, width=12)
         self.date_naissance.grid(row=r, column=1, sticky="w", padx=4, pady=3)
         r += 1
 
-        self._add_field(form_card, r, "Lieu de naissance", "lieu_naissance"); r += 1
+        self._add_field(form_grid, r, "Lieu de naissance", "lieu_naissance"); r += 1
 
         # ── Section: Coordonnées ────────────────────────────────────
-        self._section_header(form_card, "Coordonnées", r); r += 1
+        self._section_header(form_grid, "Coordonnées", r); r += 1
 
-        self._add_field(form_card, r, "Adresse", "adresse", width=28); r += 1
-        self._add_field(form_card, r, "Téléphone", "telephone"); r += 1
-        self._add_field(form_card, r, "Venant de", "venant_de"); r += 1
-        self._add_field(form_card, r, "Allant à", "allant_a"); r += 1
+        self._add_field(form_grid, r, "Adresse", "adresse", width=28); r += 1
+        self._add_field(form_grid, r, "Téléphone", "telephone"); r += 1
+        self._add_field(form_grid, r, "Venant de", "venant_de"); r += 1
+        self._add_field(form_grid, r, "Allant à", "allant_a"); r += 1
 
         # ── Section: Séjour ─────────────────────────────────────────
-        self._section_header(form_card, "Séjour", r); r += 1
+        self._section_header(form_grid, "Séjour", r); r += 1
 
-        tk.Label(form_card, text="Chambre réservée", bg=CARD_BG,
+        tk.Label(form_grid, text="Chambre réservée", bg=CARD_BG,
                  fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
             row=r, column=0, sticky="w", padx=18, pady=3)
         self.chambre_var = tk.StringVar()
         self.combo_chambres = ttk.Combobox(
-            form_card, textvariable=self.chambre_var, width=21, state="readonly")
+            form_grid, textvariable=self.chambre_var, width=21, state="readonly")
         self.combo_chambres.grid(row=r, column=1, sticky="w", padx=4, pady=3)
         r += 1
 
-        tk.Label(form_card, text="Date d'entrée", bg=CARD_BG,
+        tk.Label(form_grid, text="Date d'entrée", bg=CARD_BG,
                  fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
             row=r, column=0, sticky="w", padx=18, pady=3)
-        self.date_entree = DateEntry(form_card, width=12)
+        self.date_entree = DateEntry(form_grid, width=12)
         self.date_entree.grid(row=r, column=1, sticky="w", padx=4, pady=3)
         r += 1
 
-        tk.Label(form_card, text="Date de sortie", bg=CARD_BG,
+        tk.Label(form_grid, text="Date de sortie", bg=CARD_BG,
                  fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
             row=r, column=0, sticky="w", padx=18, pady=3)
-        self.date_sortie = DateEntry(form_card, width=12)
+        self.date_sortie = DateEntry(form_grid, width=12)
         self.date_sortie.grid(row=r, column=1, sticky="w", padx=4, pady=3)
         r += 1
 
-        tk.Label(form_card, text="Statut", bg=CARD_BG,
+        tk.Label(form_grid, text="Statut", bg=CARD_BG,
                  fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
             row=r, column=0, sticky="w", padx=18, pady=3)
         self.statut_var = tk.StringVar(value="En cours")
-        ttk.Combobox(form_card, textvariable=self.statut_var,
+        ttk.Combobox(form_grid, textvariable=self.statut_var,
                      values=["En cours", "Sorti"], width=21,
                      state="readonly").grid(row=r, column=1, sticky="w", padx=4, pady=3)
         r += 1
 
         # ── Buttons ─────────────────────────────────────────────────
-        btn_frame = tk.Frame(form_card, bg=CARD_BG)
+        btn_frame = tk.Frame(form_grid, bg=CARD_BG)
         btn_frame.grid(row=r, column=0, columnspan=2, pady=(12, 14))
 
         tk.Button(btn_frame, text="Nouveau", bg=CARD_BG, fg=TEXT_PRIMARY,
@@ -136,7 +139,7 @@ class ClientsTab(tk.Frame):
                   cursor="hand2", width=10, command=self.supprimer).pack(
             side="left", padx=3)
 
-        btn_frame2 = tk.Frame(form_card, bg=CARD_BG)
+        btn_frame2 = tk.Frame(form_grid, bg=CARD_BG)
         btn_frame2.grid(row=r + 1, column=0, columnspan=2, pady=(0, 14))
 
         tk.Button(btn_frame2, text="Check-out", bg=ATTENTION, fg="white",
