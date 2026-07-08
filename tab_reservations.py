@@ -1,11 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-Module tab_reservations.py - Onglet "Reservations" pour la Gestion d'Hotel.
-Extrait automatiquement du fichier unique gestion_hotel.py, sans aucune
-modification du code original (seuls les imports necessaires ont ete
-ajoutes pour que ce module fonctionne de maniere independante).
-"""
-
 import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import date
@@ -14,14 +7,26 @@ import database as db
 from database import TYPES_IDENTIFIANT, get_connection
 from widgets import DateEntry, date_str_to_iso, iso_to_date_str
 
-# ==============================================================================
-# Module : tab_reservations.py
-# ==============================================================================
+# ── Design system palette ──────────────────────────────────────────
+BG          = "#F1F3F6"
+CARD_BG     = "#FFFFFF"
+CARD_BORDER = "#E2E5EA"
+TEXT_PRIMARY = "#1E293B"
+TEXT_SECONDARY = "#64748B"
+PRIMAIRE     = "#4F46E5"
+PRIMAIRE_HVR = "#4338CA"
+SUCCES       = "#10B981"
+SUCCES_HVR   = "#059669"
+ATTENTION    = "#F59E0B"
+DANGER       = "#EF4444"
+DANGER_HVR   = "#DC2626"
+NEUTRE_CLAIR = "#F8FAFC"
 
 STATUTS_RESERVATION = ["RESERVE", "ANNULE"]
-COULEURS_STATUT_REZ = {
-    "RESERVE": "#FB8C00",
-    "ANNULE":  "#9E9E9E",
+
+BADGE_COLORS = {
+    "RESERVE": {"bg": "#EEF2FF", "fg": PRIMAIRE, "label": "Réservé"},
+    "ANNULE":  {"bg": "#FEF2F2", "fg": DANGER,  "label": "Annulé"},
 }
 
 
@@ -30,85 +35,148 @@ class ReservationsTab(tk.Frame):
         super().__init__(parent)
         self.app = app
         self.selected_reservation_id = None
+        self.configure(bg=BG)
+
         self._build_ui()
         self.refresh()
 
     # ------------------------------------------------------------------
     def _build_ui(self):
-        # ----- Barre supérieure : filtres + bouton nouveau -----
-        top_frame = ttk.Frame(self)
-        top_frame.pack(fill="x", padx=8, pady=(8, 0))
+        # ── Left panel: table card ───────────────────────────────────
+        left = tk.Frame(self, bg=BG)
+        left.pack(side="left", fill="both", expand=True, padx=8, pady=8)
 
-        ttk.Label(top_frame, text="Filtre statut :").pack(side="left")
-        self.filtre_statut = tk.StringVar(value="Tous")
-        ttk.Combobox(
-            top_frame, textvariable=self.filtre_statut,
-            values=["Tous"] + STATUTS_RESERVATION,
-            width=12, state="readonly"
-        ).pack(side="left", padx=4)
-        self.filtre_statut.trace_add("write", lambda *a: self.refresh())
+        # ── Header card ─────────────────────────────────────────────
+        header_card = tk.Frame(left, bg=CARD_BG, bd=0,
+                               highlightbackground=CARD_BORDER, highlightthickness=1)
+        header_card.pack(fill="x", pady=(0, 6))
 
-        ttk.Label(top_frame, text="Recherche :").pack(side="left", padx=(12, 0))
+        hdr_inner = tk.Frame(header_card, bg=CARD_BG)
+        hdr_inner.pack(fill="x", padx=20, pady=14)
+
+        self.total_var = tk.StringVar(value="0 réservations")
+        tk.Label(hdr_inner, text="Réservations", bg=CARD_BG, fg=TEXT_PRIMARY,
+                 font=("Segoe UI", 14, "bold")).pack(side="left")
+        tk.Label(hdr_inner, textvariable=self.total_var, bg=CARD_BG,
+                 fg=TEXT_SECONDARY, font=("Segoe UI", 10)).pack(
+            side="left", padx=(12, 0))
+
+        # ── Table card ──────────────────────────────────────────────
+        table_card = tk.Frame(left, bg=CARD_BG, bd=0,
+                              highlightbackground=CARD_BORDER, highlightthickness=1)
+        table_card.pack(fill="both", expand=True)
+
+        # Toolbar: search + filter
+        toolbar = tk.Frame(table_card, bg=CARD_BG)
+        toolbar.pack(fill="x", padx=14, pady=(12, 6))
+
+        tk.Label(toolbar, text="Recherche", bg=CARD_BG, fg=TEXT_SECONDARY,
+                 font=("Segoe UI", 9)).pack(side="left")
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *a: self.refresh())
-        ttk.Entry(top_frame, textvariable=self.search_var, width=25).pack(
-            side="left", padx=4)
+        tk.Entry(toolbar, textvariable=self.search_var, width=22,
+                 font=("Segoe UI", 9), bd=1, relief="solid",
+                 highlightbackground=CARD_BORDER).pack(side="left", padx=(4, 12))
 
-        ttk.Button(
-            top_frame, text="+ Nouvelle réservation",
-            command=self.nouvelle_reservation
-        ).pack(side="right", padx=4)
-        ttk.Button(
-            top_frame, text="✏️ Modifier",
-            command=self.modifier_reservation
-        ).pack(side="right", padx=4)
-        ttk.Button(
-            top_frame, text="🗑️ Supprimer",
-            command=self.supprimer_reservation
-        ).pack(side="right", padx=4)
-        ttk.Button(
-            top_frame, text="✅ Check-in",
-            command=self.checkin_reservation
-        ).pack(side="right", padx=4)
+        tk.Label(toolbar, text="Filtre", bg=CARD_BG, fg=TEXT_SECONDARY,
+                 font=("Segoe UI", 9)).pack(side="left")
+        self.filtre_statut = tk.StringVar(value="Tous")
+        ttk.Combobox(toolbar, textvariable=self.filtre_statut,
+                     values=["Tous"] + STATUTS_RESERVATION, width=12,
+                     state="readonly").pack(side="left", padx=4)
+        self.filtre_statut.trace_add("write", lambda *a: self.refresh())
 
-        # ----- Liste des réservations -----
-        list_frame = ttk.Frame(self)
-        list_frame.pack(fill="both", expand=True, padx=8, pady=8)
+        # Treeview
+        tree_frame = tk.Frame(table_card, bg=CARD_BG)
+        tree_frame.pack(fill="both", expand=True, padx=14, pady=(0, 12))
 
         columns = ("id", "nom", "prenom", "telephone", "chambre",
                    "arrivee", "depart", "nb_personnes", "statut")
         headers = {
-            "id": "ID", "nom": "Nom", "prenom": "Prénom",
-            "telephone": "Téléphone", "chambre": "Chambre",
-            "arrivee": "Arrivée", "depart": "Départ",
-            "nb_personnes": "Pers.", "statut": "Statut",
+            "id": "ID", "nom": "NOM", "prenom": "PRÉNOM",
+            "telephone": "TÉLÉPHONE", "chambre": "CHAMBRE",
+            "arrivee": "ARRIVÉE", "depart": "DÉPART",
+            "nb_personnes": "PERS.", "statut": "STATUT",
         }
-        self.tree = ttk.Treeview(
-            list_frame, columns=columns, show="headings", height=20)
+        self.tree = ttk.Treeview(tree_frame, columns=columns, show="headings",
+                                 height=20)
+        style = ttk.Style()
+        style.configure("Rez.Treeview", font=("Segoe UI", 9), rowheight=28)
+        style.configure("Rez.Treeview.Heading", font=("Segoe UI", 9, "bold"),
+                        foreground=TEXT_SECONDARY)
+        self.tree.configure(style="Rez.Treeview")
+
         for c in columns:
             self.tree.heading(c, text=headers[c])
-            self.tree.column(c, width=80, anchor="center")
+            w = 46 if c == "id" else 90 if c in ("chambre", "statut") else 100
+            self.tree.column(c, width=w, anchor="center")
         self.tree.column("nom", width=120, anchor="w")
         self.tree.column("prenom", width=120, anchor="w")
         self.tree.column("telephone", width=110, anchor="w")
+        self.tree.column("arrivee", width=85, anchor="center")
+        self.tree.column("depart", width=85, anchor="center")
+        self.tree.column("nb_personnes", width=50, anchor="center")
+        self.tree.column("statut", width=90, anchor="center")
 
-        # Couleurs par statut
-        for statut, couleur in COULEURS_STATUT_REZ.items():
-            self.tree.tag_configure(statut, background=couleur,
-                                    foreground="white")
+        # Zebra striping
+        self.tree.tag_configure("odd", background=NEUTRE_CLAIR)
+        self.tree.tag_configure("even", background=CARD_BG)
 
-        scrollbar = ttk.Scrollbar(list_frame, orient="vertical",
-                                   command=self.tree.yview)
+        scrollbar = ttk.Scrollbar(tree_frame, orient="vertical",
+                                  command=self.tree.yview)
         self.tree.configure(yscrollcommand=scrollbar.set)
         self.tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
-
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
 
-       
-        self.compteur_var = tk.StringVar()
-        ttk.Label(self, textvariable=self.compteur_var,
-                  font=("Segoe UI", 9, "italic")).pack(anchor="e", padx=8)
+        # Status bar
+        self.status_var = tk.StringVar()
+        tk.Label(table_card, textvariable=self.status_var, bg=CARD_BG,
+                 fg=TEXT_SECONDARY, font=("Segoe UI", 9),
+                 anchor="w").pack(fill="x", padx=14, pady=(0, 10))
+
+        # ── Right panel: action buttons card ─────────────────────────
+        right = tk.Frame(self, bg=BG)
+        right.pack(side="right", fill="y", padx=(0, 8), pady=8)
+
+        btn_card = tk.Frame(right, bg=CARD_BG, bd=0,
+                            highlightbackground=CARD_BORDER, highlightthickness=1)
+        btn_card.pack(fill="y", expand=True)
+
+        tk.Label(btn_card, text="Actions", bg=CARD_BG, fg=TEXT_SECONDARY,
+                 font=("Segoe UI", 9, "bold")).pack(
+            anchor="w", padx=16, pady=(14, 10))
+
+        self._make_btn(btn_card, "+ Nouvelle\nréservation",
+                       PRIMAIRE, PRIMAIRE_HVR, "white",
+                       self.nouvelle_reservation, bold=True)
+        self._make_btn(btn_card, "Check-in",
+                       SUCCES, SUCCES_HVR, "white",
+                       self.checkin_reservation, bold=True)
+        self._make_btn(btn_card, "Modifier",
+                       CARD_BG, NEUTRE_CLAIR, TEXT_PRIMARY,
+                       self.modifier_reservation, border=True)
+        self._make_btn(btn_card, "Supprimer",
+                       DANGER, DANGER_HVR, "white",
+                       self.supprimer_reservation, bold=True)
+
+        tk.Frame(btn_card, bg=CARD_BG, height=10).pack()
+        self._make_btn(btn_card, "Annuler",
+                       ATTENTION, "#D97706", "white",
+                       self.annuler_reservation, bold=True)
+
+    def _make_btn(self, parent, text, bg, active, fg, command,
+                  bold=False, border=False):
+        weight = "bold" if bold else "normal"
+        font = ("Segoe UI", 10, weight)
+        relief = "solid" if border else "flat"
+        bd = 1 if border else 0
+        btn = tk.Button(parent, text=text, bg=bg, fg=fg,
+                        font=font, bd=bd, relief=relief,
+                        activebackground=active, activeforeground=fg,
+                        cursor="hand2", width=18, command=command)
+        btn.pack(padx=12, pady=4, fill="x")
+        return btn
 
     # ------------------------------------------------------------------
     def refresh(self):
@@ -121,25 +189,35 @@ class ReservationsTab(tk.Frame):
 
         recherche = self.search_var.get().strip().lower()
         total = 0
-        for r in reservations:
+        for i, r in enumerate(reservations):
             ligne = (r["nom"], r["prenom"], r["telephone"],
                      r["chambre_numero"] or "")
             if recherche and not any(
                     recherche in str(v).lower() for v in ligne):
                 continue
-            tag = r["statut"] if r["statut"] in COULEURS_STATUT_REZ else ""
-            self.tree.insert("", "end", iid=str(r["id"]), tags=(tag,), values=(
+
+            statut_val = r["statut"]
+            badge = BADGE_COLORS.get(statut_val, None)
+            if badge:
+                statut_display = f"  {badge['label']}  "
+            else:
+                statut_display = statut_val
+
+            row_tag = "odd" if i % 2 else "even"
+
+            self.tree.insert("", "end", iid=str(r["id"]), tags=(row_tag,), values=(
                 r["id"],
                 r["nom"], r["prenom"], r["telephone"],
                 r["chambre_numero"] or "—",
                 iso_to_date_str(r["date_arrivee"]) or r["date_arrivee"],
                 iso_to_date_str(r["date_depart"]) or r["date_depart"],
                 r["nb_personnes"],
-                r["statut"],
+                statut_display,
             ))
             total += 1
 
-        self.compteur_var.set(f"{total} réservation(s) affichée(s)")
+        self.total_var.set(f"{total} réservation(s)")
+        self.status_var.set(f"{total} réservation(s) affichée(s)")
 
     def _on_select(self, event=None):
         selection = self.tree.selection()
@@ -148,27 +226,43 @@ class ReservationsTab(tk.Frame):
 
     # ------------------------------------------------------------------
     def _ouvrir_formulaire(self, reservation=None):
-        """Fenêtre modale pour ajouter ou modifier une réservation."""
         win = tk.Toplevel(self)
         win.title("Nouvelle réservation" if reservation is None
                   else f"Modifier réservation #{reservation['id']}")
         win.resizable(False, False)
         win.transient(self)
         win.grab_set()
+        win.configure(bg=BG)
 
-        frame = ttk.Frame(win)
-        frame.pack(padx=16, pady=12)
+        outer = tk.Frame(win, bg=BG)
+        outer.pack(fill="both", expand=True)
 
-        def row(r, label, widget_fn):
-            ttk.Label(frame, text=label).grid(
-                row=r, column=0, sticky="w", padx=6, pady=4)
-            w = widget_fn(frame)
-            w.grid(row=r, column=1, sticky="w", padx=6, pady=4)
+        form_card = tk.Frame(outer, bg=CARD_BG, bd=0,
+                             highlightbackground=CARD_BORDER, highlightthickness=1)
+        form_card.pack(fill="both", expand=True, padx=8, pady=8)
+
+        tk.Label(form_card, text="Nouvelle réservation" if reservation is None
+                 else f"Réservation #{reservation['id']}",
+                 bg=CARD_BG, fg=TEXT_PRIMARY,
+                 font=("Segoe UI", 13, "bold")).pack(
+            anchor="w", padx=18, pady=(14, 4))
+
+        form_grid = tk.Frame(form_card, bg=CARD_BG)
+        form_grid.pack(fill="both", expand=True)
+
+        def row(r, label, widget_fn, required=False):
+            txt = label + (" *" if required else "")
+            tk.Label(form_grid, text=txt, bg=CARD_BG, fg=TEXT_PRIMARY,
+                     font=("Segoe UI", 9)).grid(
+                row=r, column=0, sticky="w", padx=18, pady=4)
+            w = widget_fn(form_grid)
+            w.grid(row=r, column=1, sticky="w", padx=4, pady=4)
             return w
 
-        # Champs texte
         def entry(parent, var, width=24):
-            return ttk.Entry(parent, textvariable=var, width=width)
+            return tk.Entry(parent, textvariable=var, width=width,
+                            font=("Segoe UI", 9), bd=1, relief="solid",
+                            highlightbackground=CARD_BORDER)
 
         nom_var = tk.StringVar(value=reservation["nom"] if reservation else "")
         prenom_var = tk.StringVar(
@@ -177,7 +271,7 @@ class ReservationsTab(tk.Frame):
             value=reservation["telephone"] if reservation else "")
         type_id_var = tk.StringVar(
             value=reservation["type_identifiant"] if reservation
-            else db.TYPES_IDENTIFIANT[0])
+            else TYPES_IDENTIFIANT[0])
         num_id_var = tk.StringVar(
             value=reservation["numero_identifiant"] if reservation else "")
         nb_var = tk.StringVar(
@@ -187,22 +281,38 @@ class ReservationsTab(tk.Frame):
         statut_var = tk.StringVar(
             value=reservation["statut"] if reservation else "RESERVE")
 
-        row(0, "Nom *", lambda p: entry(p, nom_var))
-        row(1, "Prénom *", lambda p: entry(p, prenom_var))
-        row(2, "Téléphone", lambda p: entry(p, tel_var))
+        # ── Section: Client ─────────────────────────────────────────
+        tk.Label(form_grid, text="Informations client", bg=NEUTRE_CLAIR,
+                 fg=PRIMAIRE, font=("Segoe UI", 10, "bold"), anchor="w").grid(
+            row=0, column=0, columnspan=2, sticky="ew", padx=14,
+            pady=(10, 2), ipady=3)
+        form_grid.grid_columnconfigure(0, weight=1)
+        form_grid.grid_columnconfigure(1, weight=1)
 
-        ttk.Label(frame, text="Type d'identifiant").grid(
-            row=3, column=0, sticky="w", padx=6, pady=4)
-        ttk.Combobox(frame, textvariable=type_id_var,
-                     values=db.TYPES_IDENTIFIANT, width=22,
-                     state="readonly").grid(row=3, column=1, sticky="w",
-                                            padx=6, pady=4)
+        row(1, "Nom", lambda p: entry(p, nom_var), required=True)
+        row(2, "Prénom", lambda p: entry(p, prenom_var), required=True)
+        row(3, "Téléphone", lambda p: entry(p, tel_var))
 
-        row(4, "N° identifiant", lambda p: entry(p, num_id_var))
+        tk.Label(form_grid, text="Type d'identifiant", bg=CARD_BG,
+                 fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
+            row=4, column=0, sticky="w", padx=18, pady=4)
+        ttk.Combobox(form_grid, textvariable=type_id_var,
+                     values=TYPES_IDENTIFIANT, width=22,
+                     state="readonly").grid(row=4, column=1, sticky="w",
+                                            padx=4, pady=4)
 
-        # Chambre
-        ttk.Label(frame, text="Chambre").grid(
-            row=5, column=0, sticky="w", padx=6, pady=4)
+        row(5, "N° identifiant", lambda p: entry(p, num_id_var))
+
+        # ── Section: Séjour ─────────────────────────────────────────
+        tk.Label(form_grid, text="Détails du séjour", bg=NEUTRE_CLAIR,
+                 fg=PRIMAIRE, font=("Segoe UI", 10, "bold"), anchor="w").grid(
+            row=6, column=0, columnspan=2, sticky="ew", padx=14,
+            pady=(10, 2), ipady=3)
+
+        # Chambre combo
+        tk.Label(form_grid, text="Chambre", bg=CARD_BG, fg=TEXT_PRIMARY,
+                 font=("Segoe UI", 9)).grid(
+            row=7, column=0, sticky="w", padx=18, pady=4)
         chambres = db.get_chambres()
         chambre_map = {"— Aucune —": None}
         chambre_vals = ["— Aucune —"]
@@ -220,38 +330,42 @@ class ReservationsTab(tk.Frame):
                     chambre_var.set(t)
                     break
 
-        ttk.Combobox(frame, textvariable=chambre_var, values=chambre_vals,
+        ttk.Combobox(form_grid, textvariable=chambre_var, values=chambre_vals,
                      width=28, state="readonly").grid(
-            row=5, column=1, sticky="w", padx=6, pady=4)
+            row=7, column=1, sticky="w", padx=4, pady=4)
 
         # Dates
-        ttk.Label(frame, text="Date d'arrivée *").grid(
-            row=6, column=0, sticky="w", padx=6, pady=4)
-        date_arrivee = DateEntry(frame, width=12)
-        date_arrivee.grid(row=6, column=1, sticky="w", padx=6, pady=4)
+        tk.Label(form_grid, text="Date d'arrivée *", bg=CARD_BG,
+                 fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
+            row=8, column=0, sticky="w", padx=18, pady=4)
+        date_arrivee = DateEntry(form_grid, width=12)
+        date_arrivee.grid(row=8, column=1, sticky="w", padx=4, pady=4)
         if reservation and reservation["date_arrivee"]:
-            date_arrivee.set(
-                iso_to_date_str(reservation["date_arrivee"]))
+            date_arrivee.set(iso_to_date_str(reservation["date_arrivee"]))
 
-        ttk.Label(frame, text="Date de départ *").grid(
-            row=7, column=0, sticky="w", padx=6, pady=4)
-        date_depart = DateEntry(frame, width=12)
-        date_depart.grid(row=7, column=1, sticky="w", padx=6, pady=4)
+        tk.Label(form_grid, text="Date de départ *", bg=CARD_BG,
+                 fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
+            row=9, column=0, sticky="w", padx=18, pady=4)
+        date_depart = DateEntry(form_grid, width=12)
+        date_depart.grid(row=9, column=1, sticky="w", padx=4, pady=4)
         if reservation and reservation["date_depart"]:
-            date_depart.set(
-                iso_to_date_str(reservation["date_depart"]))
+            date_depart.set(iso_to_date_str(reservation["date_depart"]))
 
-        row(8, "Nb. personnes", lambda p: entry(p, nb_var, width=6))
-        row(9, "Notes", lambda p: entry(p, notes_var, width=30))
+        row(10, "Nb. personnes", lambda p: entry(p, nb_var, width=6))
+        row(11, "Notes", lambda p: entry(p, notes_var, width=30))
 
-        ttk.Label(frame, text="Statut").grid(
-            row=10, column=0, sticky="w", padx=6, pady=4)
-        ttk.Combobox(frame, textvariable=statut_var,
+        tk.Label(form_grid, text="Statut", bg=CARD_BG, fg=TEXT_PRIMARY,
+                 font=("Segoe UI", 9)).grid(
+            row=12, column=0, sticky="w", padx=18, pady=4)
+        ttk.Combobox(form_grid, textvariable=statut_var,
                      values=STATUTS_RESERVATION, width=22,
-                     state="readonly").grid(row=10, column=1, sticky="w",
-                                            padx=6, pady=4)
+                     state="readonly").grid(row=12, column=1, sticky="w",
+                                            padx=4, pady=4)
 
-        # Boutons
+        # ── Buttons ─────────────────────────────────────────────────
+        btn_frame = tk.Frame(form_grid, bg=CARD_BG)
+        btn_frame.grid(row=13, column=0, columnspan=2, pady=(12, 14))
+
         def enregistrer():
             nom = nom_var.get().strip()
             prenom = prenom_var.get().strip()
@@ -273,14 +387,12 @@ class ReservationsTab(tk.Frame):
                     "La date de départ doit être après ou égale à la date d'arrivée.",
                     parent=win)
                 return
-
             if d_arr < date.today().isoformat():
                 messagebox.showerror(
                     "Erreur",
                     "La date d'arrivée ne peut pas être dans le passé.",
                     parent=win)
                 return
-
             try:
                 nb = int(nb_var.get())
                 if nb < 1:
@@ -299,14 +411,12 @@ class ReservationsTab(tk.Frame):
                 return
 
             data = {
-                "nom": nom,
-                "prenom": prenom,
+                "nom": nom, "prenom": prenom,
                 "telephone": tel_var.get().strip(),
                 "type_identifiant": type_id_var.get(),
                 "numero_identifiant": num_id_var.get().strip(),
                 "chambre_id": chambre_map.get(chambre_var.get()),
-                "date_arrivee": d_arr,
-                "date_depart": d_dep,
+                "date_arrivee": d_arr, "date_depart": d_dep,
                 "nb_personnes": nb,
                 "notes": notes_var.get().strip(),
                 "statut": statut_var.get(),
@@ -323,12 +433,15 @@ class ReservationsTab(tk.Frame):
             self.refresh()
             self.app.refresh_rooms_tab()
 
-        btn_f = ttk.Frame(win)
-        btn_f.pack(pady=10)
-        ttk.Button(btn_f, text="Enregistrer",
-                   command=enregistrer).pack(side="left", padx=6)
-        ttk.Button(btn_f, text="Annuler",
-                   command=win.destroy).pack(side="left", padx=6)
+        tk.Button(btn_frame, text="Enregistrer", bg=PRIMAIRE, fg="white",
+                  font=("Segoe UI", 10, "bold"), bd=0,
+                  activebackground=PRIMAIRE_HVR, activeforeground="white",
+                  cursor="hand2", width=14, command=enregistrer).pack(
+            side="left", padx=4)
+        tk.Button(btn_frame, text="Annuler", bg=CARD_BG, fg=TEXT_PRIMARY,
+                  font=("Segoe UI", 10), bd=1, relief="solid",
+                  activebackground=NEUTRE_CLAIR, cursor="hand2",
+                  width=14, command=win.destroy).pack(side="left", padx=4)
 
     # ------------------------------------------------------------------
     def nouvelle_reservation(self):
@@ -380,6 +493,7 @@ class ReservationsTab(tk.Frame):
         db.update_reservation(self.selected_reservation_id, data)
         self.refresh()
         self.app.refresh_rooms_tab()
+
     def checkin_reservation(self):
         if not self.selected_reservation_id:
             messagebox.showwarning("Attention",
@@ -402,31 +516,23 @@ class ReservationsTab(tk.Frame):
                 f"en chambre {r['chambre_numero']} ?"):
             return
 
-        # Créer le client à partir de la réservation
         data_client = {
-            "nom": r["nom"],
-            "prenom": r["prenom"],
+            "nom": r["nom"], "prenom": r["prenom"],
             "type_identifiant": r["type_identifiant"],
             "numero_identifiant": r["numero_identifiant"],
-            "date_naissance": "",
-            "lieu_naissance": "",
-            "adresse": "",
-            "telephone": r["telephone"],
-            "venant_de": "",
-            "allant_a": "",
+            "date_naissance": "", "lieu_naissance": "", "adresse": "",
+            "telephone": r["telephone"], "venant_de": "", "allant_a": "",
             "chambre_id": r["chambre_id"],
             "date_entree": date.today().strftime("%Y-%m-%d"),
             "date_sortie": r["date_depart"],
             "statut": "En cours",
         }
-
         try:
             db.add_client(data_client)
         except ValueError as e:
             messagebox.showerror("Erreur", str(e))
             return
 
-        # Supprimer la réservation
         conn = get_connection()
         conn.execute("DELETE FROM reservations WHERE id=?",
                      (self.selected_reservation_id,))
