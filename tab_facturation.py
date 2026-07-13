@@ -444,13 +444,15 @@ class FacturationTab(tk.Frame):
         texte_client = self.client_var.get()
         facture_id = self.facture_id_map.get(texte_client)
         if facture_id:
-            _, lignes_db = db.get_facture(facture_id)
+            facture, lignes_db = db.get_facture(facture_id)
             self.lignes = [{
                 "description": l["description"],
                 "quantite": l["quantite"],
                 "prix_unitaire": l["prix_unitaire"],
                 "auto": True,
             } for l in lignes_db]
+            if facture and facture["remise"]:
+                self.remise_var.set(f"{facture['remise']:.3f}".replace(".", ","))
             self.refresh_lignes()
         else:
             self.recalculer_hebergement()
@@ -500,20 +502,23 @@ class FacturationTab(tk.Frame):
             tag = "paye"
         elif statut_paiement == "partiel":
             solde = self.soldes_factures.get(self.client_var.get(), 0.0)
-            statut_texte = f"Partiel — Reste {solde:.3f} TND".replace(".", ",")
+            statut_texte = f"Reste {solde:.3f} TND".replace(".", ",")
             tag = "partiel"
         else:
             statut_texte = "En attente"
             tag = "non_paye"
 
+        last_index = len(self.lignes) - 1
         for index, ligne in enumerate(self.lignes):
             montant = ligne["quantite"] * ligne["prix_unitaire"]
             row_tag = "odd" if index % 2 else "even"
+            # Show status only on the last row
+            display_statut = statut_texte if index == last_index else ""
             self.tree.insert("", "end", iid=str(index), values=(
                 ligne["description"], f"{ligne['quantite']:g}",
                 f"{ligne['prix_unitaire']:.3f}".replace(".", ","),
                 f"{montant:.3f}".replace(".", ","),
-                statut_texte,
+                display_statut,
             ), tags=(row_tag, tag))
         self.update_total()
 
@@ -1044,22 +1049,33 @@ class FacturationTab(tk.Frame):
         frame.pack(fill="both", expand=True, padx=10, pady=10)
 
         sous_total = sum(l["quantite"] * l["prix_unitaire"] for l in self.lignes)
-        try:
-            remise = float(self.remise_var.get().replace(",", "."))
-        except ValueError:
-            remise = 0.0
-        total = round(sous_total - remise, 3)
-
-        deja_paye = self.soldes_factures.get(texte, 0.0) if statut == "partiel" else 0.0
+        remise = 0.0
         facture_id = self.facture_id_map.get(texte)
-        if statut == "partiel" and facture_id:
+        if facture_id:
             conn = get_connection()
             row = conn.execute(
-                "SELECT montant_paye FROM factures WHERE id=?", (facture_id,)
+                "SELECT remise, montant_total, montant_paye FROM factures WHERE id=?",
+                (facture_id,)
             ).fetchone()
             conn.close()
-            if row and row["montant_paye"]:
-                deja_paye = round(float(row["montant_paye"]), 3)
+            if row:
+                remise = float(row["remise"] or 0.0)
+                total = round(float(row["montant_total"]), 3)
+                deja_paye = round(float(row["montant_paye"] or 0.0), 3)
+            else:
+                try:
+                    remise = float(self.remise_var.get().replace(",", "."))
+                except ValueError:
+                    remise = 0.0
+                total = round(sous_total - remise, 3)
+                deja_paye = 0.0
+        else:
+            try:
+                remise = float(self.remise_var.get().replace(",", "."))
+            except ValueError:
+                remise = 0.0
+            total = round(sous_total - remise, 3)
+            deja_paye = 0.0
 
         reste_du = round(total - deja_paye, 3)
         if reste_du < 0:
