@@ -427,10 +427,11 @@ class FacturationTab(tk.Frame):
         client = self.client_map.get(texte)
         if not client:
             return
+
         prefix = "Réservation" if client.get("is_reservation") else "Client"
+        prix = f"{client['chambre_prix']:.3f} TND / nuit" if client['chambre_prix'] else "Prix non défini"
         self.chambre_label_var.set(
-            f"{prefix} — Chambre {client['chambre_numero']} "
-            f"({client['chambre_prix']:.3f} TND / nuit)")
+            f"{prefix} — Chambre {client['chambre_numero']} ({prix})")
         if client["date_entree"]:
             self.date_entree.set(iso_to_date_str(client["date_entree"]))
         else:
@@ -746,13 +747,6 @@ class FacturationTab(tk.Frame):
                              font=("Segoe UI", 9), bd=1, relief="solid",
                              highlightbackground=CARD_BORDER)
 
-        filtre_btn = tk.Button(ff, text="Filtrer", bg=PRIMAIRE, fg="white",
-                               font=("Segoe UI", 9, "bold"), bd=0,
-                               activebackground=PRIMAIRE_HVR, activeforeground="white",
-                               cursor="hand2",
-                               command=lambda: appliquer_filtre())
-        filtre_btn.pack(side="left", padx=12)
-
         def on_critere_change(*args):
             for w in (lbl_debut, date_debut, lbl_fin, date_fin, lbl_cin, entry_cin):
                 w.pack_forget()
@@ -783,9 +777,10 @@ class FacturationTab(tk.Frame):
         }
         hist_tree = ttk.Treeview(table_card, columns=hist_columns,
                                  show="headings", height=18)
-        style.configure("Hist.Treeview", font=("Segoe UI", 9), rowheight=26)
-        style.configure("Hist.Treeview.Heading", font=("Segoe UI", 9, "bold"),
-                        foreground=TEXT_SECONDARY)
+        hist_style = ttk.Style()
+        hist_style.configure("Hist.Treeview", font=("Segoe UI", 9), rowheight=26)
+        hist_style.configure("Hist.Treeview.Heading", font=("Segoe UI", 9, "bold"),
+                             foreground=TEXT_SECONDARY)
         hist_tree.configure(style="Hist.Treeview")
 
         for c in hist_columns:
@@ -890,6 +885,13 @@ class FacturationTab(tk.Frame):
             nb = len(hist_tree.get_children())
             compteur_var.set(f"{nb} facture(s) trouvée(s)")
 
+        filtre_btn = tk.Button(ff, text="Filtrer", bg=PRIMAIRE, fg="white",
+                               font=("Segoe UI", 9, "bold"), bd=0,
+                               activebackground=PRIMAIRE_HVR, activeforeground="white",
+                               cursor="hand2",
+                               command=appliquer_filtre)
+        filtre_btn.pack(side="left", padx=12)
+
         appliquer_filtre()
 
         # Bottom buttons
@@ -990,12 +992,14 @@ class FacturationTab(tk.Frame):
         if not self.lignes:
             messagebox.showwarning("Attention", "Aucune ligne de facturation.")
             return
-        if self.paiements.get(self.client_var.get(), False):
-            messagebox.showinfo("Information", "Cette facture est déjà payée.")
+
+        texte = self.client_var.get()
+        statut = self.paiements.get(texte, False)
+        if statut is True:
+            messagebox.showinfo("Information", "Cette facture est entièrement payée.")
             return
 
-        if not self.facture_id_map.get(self.client_var.get()):
-            texte = self.client_var.get()
+        if not self.facture_id_map.get(texte):
             client = self.client_map.get(texte)
             d_entree = self.date_entree.get_date()
             d_sortie = self.date_sortie.get_date()
@@ -1022,7 +1026,7 @@ class FacturationTab(tk.Frame):
                 mode_paiement=self.mode_var.get(),
                 nom_client=nom_client,
             )
-            self.facture_id_map[self.client_var.get()] = facture_id
+            self.facture_id_map[texte] = facture_id
 
         win = tk.Toplevel(self)
         win.title("Paiement de la facture")
@@ -1046,47 +1050,81 @@ class FacturationTab(tk.Frame):
             remise = 0.0
         total = round(sous_total - remise, 3)
 
-        tk.Label(frame, text="Montant total à payer", bg=CARD_BG,
-                 fg=TEXT_PRIMARY, font=("Segoe UI", 10, "bold")).grid(
-            row=0, column=0, sticky="w", pady=8, padx=16)
-        tk.Label(frame, text=f"{total:.3f} TND", bg=CARD_BG, fg=PRIMAIRE,
-                 font=("Segoe UI", 14, "bold")).grid(
-            row=0, column=1, sticky="w", padx=16, pady=8)
+        deja_paye = self.soldes_factures.get(texte, 0.0) if statut == "partiel" else 0.0
+        facture_id = self.facture_id_map.get(texte)
+        if statut == "partiel" and facture_id:
+            conn = get_connection()
+            row = conn.execute(
+                "SELECT montant_paye FROM factures WHERE id=?", (facture_id,)
+            ).fetchone()
+            conn.close()
+            if row and row["montant_paye"]:
+                deja_paye = round(float(row["montant_paye"]), 3)
+
+        reste_du = round(total - deja_paye, 3)
+        if reste_du < 0:
+            reste_du = 0.0
+
+        tk.Label(frame, text="Montant total facture", bg=CARD_BG,
+                 fg=TEXT_SECONDARY, font=("Segoe UI", 9)).grid(
+            row=0, column=0, sticky="w", pady=(8, 2), padx=16)
+        tk.Label(frame, text=f"{total:.3f} TND", bg=CARD_BG, fg=TEXT_PRIMARY,
+                 font=("Segoe UI", 12, "bold")).grid(
+            row=0, column=1, sticky="w", padx=16, pady=(8, 2))
+
+        if deja_paye > 0:
+            tk.Label(frame, text="Déjà payé", bg=CARD_BG,
+                     fg=TEXT_SECONDARY, font=("Segoe UI", 9)).grid(
+                row=1, column=0, sticky="w", pady=2, padx=16)
+            tk.Label(frame, text=f"{deja_paye:.3f} TND", bg=CARD_BG, fg=SUCCES,
+                     font=("Segoe UI", 11, "bold")).grid(
+                row=1, column=1, sticky="w", padx=16, pady=2)
+
+            tk.Label(frame, text="Reste à payer", bg=CARD_BG,
+                     fg=TEXT_PRIMARY, font=("Segoe UI", 10, "bold")).grid(
+                row=2, column=0, sticky="w", pady=2, padx=16)
+            tk.Label(frame, text=f"{reste_du:.3f} TND", bg=CARD_BG, fg=DANGER,
+                     font=("Segoe UI", 12, "bold")).grid(
+                row=2, column=1, sticky="w", padx=16, pady=2)
+            row_offset = 3
+        else:
+            row_offset = 1
 
         tk.Label(frame, text="Mode de paiement", bg=CARD_BG,
                  fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
-            row=1, column=0, sticky="w", pady=6, padx=16)
+            row=row_offset, column=0, sticky="w", pady=6, padx=16)
         mode_var = tk.StringVar(value=self.mode_var.get())
         ttk.Combobox(frame, textvariable=mode_var,
                      values=["Espèces", "Chèque", "Carte bancaire", "Virement"],
                      width=20, state="readonly").grid(
-            row=1, column=1, sticky="w", padx=16, pady=6)
+            row=row_offset, column=1, sticky="w", padx=16, pady=6)
 
-        tk.Label(frame, text="Montant reçu (TND)", bg=CARD_BG,
+        tk.Label(frame, text="Montant à payer (TND)", bg=CARD_BG,
                  fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
-            row=2, column=0, sticky="w", pady=6, padx=16)
-        recu_var = tk.StringVar(value=f"{total:.3f}".replace(".", ","))
+            row=row_offset + 1, column=0, sticky="w", pady=6, padx=16)
+        recu_var = tk.StringVar(value=f"{reste_du:.3f}".replace(".", ","))
         tk.Entry(frame, textvariable=recu_var, width=15,
                  font=("Segoe UI", 9), bd=1, relief="solid",
                  highlightbackground=CARD_BORDER).grid(
-            row=2, column=1, sticky="w", padx=16, pady=6)
+            row=row_offset + 1, column=1, sticky="w", padx=16, pady=6)
 
-        monnaie_var = tk.StringVar(value="Monnaie à rendre : 0.000 TND")
+        monnaie_var = tk.StringVar(value="")
         tk.Label(frame, textvariable=monnaie_var, bg=CARD_BG, fg=SUCCES,
                  font=("Segoe UI", 10, "italic")).grid(
-            row=3, column=0, columnspan=2, pady=8, padx=16)
+            row=row_offset + 2, column=0, columnspan=2, pady=8, padx=16)
 
         def calculer_monnaie(*args):
             try:
                 recu = float(recu_var.get().replace(",", "."))
-                if recu >= total:
-                    monnaie = round(recu - total, 3)
+                nouveau_total_paye = round(deja_paye + recu, 3)
+                if nouveau_total_paye >= total:
+                    monnaie = round(nouveau_total_paye - total, 3)
                     monnaie_var.set(f"Monnaie à rendre : {monnaie:.3f} TND")
                 else:
-                    solde = round(total - recu, 3)
-                    monnaie_var.set(f"Paiement partiel — Solde restant : {solde:.3f} TND")
+                    solde = round(total - nouveau_total_paye, 3)
+                    monnaie_var.set(f"Solde restant après paiement : {solde:.3f} TND")
             except ValueError:
-                monnaie_var.set("Montant reçu invalide")
+                monnaie_var.set("Montant invalide")
 
         recu_var.trace_add("write", calculer_monnaie)
 
@@ -1095,21 +1133,25 @@ class FacturationTab(tk.Frame):
                 recu = float(recu_var.get().replace(",", "."))
                 if recu <= 0:
                     messagebox.showerror("Erreur",
-                        "Le montant reçu doit être positif.", parent=win)
+                        "Le montant doit être positif.", parent=win)
                     return
             except ValueError:
-                messagebox.showerror("Erreur", "Montant reçu invalide.", parent=win)
+                messagebox.showerror("Erreur", "Montant invalide.", parent=win)
                 return
 
-            facture_id = self.facture_id_map.get(self.client_var.get())
-            texte = self.client_var.get()
+            nouveau_total_paye = round(deja_paye + recu, 3)
+            solde_restant = round(total - nouveau_total_paye, 3)
+            if solde_restant < 0:
+                solde_restant = 0.0
+
             client = self.client_map.get(texte)
 
-            if recu >= total:
+            if nouveau_total_paye >= total:
                 self.mode_var.set(mode_var.get())
                 self.paye_var.set(True)
                 self.paiements[texte] = True
                 if facture_id:
+                    db.set_facture_paiement_partiel(facture_id, recu)
                     db.set_facture_payee(facture_id)
                 if client and not client.get("is_reservation") and client.get("id"):
                     db.set_client_solde(client["id"], 0.0)
@@ -1118,27 +1160,28 @@ class FacturationTab(tk.Frame):
                 win.destroy()
                 messagebox.showinfo(
                     "Paiement confirmé",
-                    f"Paiement complet de {total:.3f} TND confirmé.\n"
-                    f"Mode : {mode_var.get()}\n"
-                    f"Monnaie rendue : {round(recu - total, 3):.3f} TND")
+                    f"Montant payé : {recu:.3f} TND\n"
+                    f"Total payé : {nouveau_total_paye:.3f} TND / {total:.3f} TND\n"
+                    f"Facture entièrement payée.")
             else:
-                solde_restant = round(total - recu, 3)
                 if facture_id:
                     db.set_facture_paiement_partiel(facture_id, recu)
                 if client and not client.get("is_reservation") and client.get("id"):
                     db.set_client_solde(client["id"], solde_restant)
                 self.paiements[texte] = "partiel"
+                self.soldes_factures[texte] = solde_restant
                 self.refresh_lignes()
                 self.app.refresh_clients_tab()
                 win.destroy()
                 messagebox.showinfo(
-                    "Paiement partiel enregistré",
-                    f"Montant reçu : {recu:.3f} TND\n"
+                    "Paiement enregistré",
+                    f"Montant payé : {recu:.3f} TND\n"
+                    f"Total payé : {nouveau_total_paye:.3f} TND / {total:.3f} TND\n"
                     f"Solde restant : {solde_restant:.3f} TND\n"
-                    f"Le solde a été ajouté à la fiche client.")
+                    f"Vous pourrez payer le solde plus tard.")
 
         btn_f = tk.Frame(frame, bg=CARD_BG)
-        btn_f.grid(row=4, column=0, columnspan=2, pady=14)
+        btn_f.grid(row=row_offset + 3, column=0, columnspan=2, pady=14)
         tk.Button(btn_f, text="Confirmer le paiement", bg=SUCCES, fg="white",
                   font=("Segoe UI", 10, "bold"), bd=0,
                   activebackground=SUCCES_HVR, activeforeground="white",

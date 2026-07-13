@@ -689,9 +689,14 @@ def set_facture_payee(facture_id):
     conn.close()
 def set_facture_paiement_partiel(facture_id, montant_paye):
     conn = get_connection()
+    row = conn.execute(
+        "SELECT montant_paye FROM factures WHERE id=?", (facture_id,)
+    ).fetchone()
+    ancien = row["montant_paye"] if row else 0.0
+    nouveau_total = round(ancien + montant_paye, 3)
     conn.execute(
-        "UPDATE factures SET payee=0, montant_paye=? WHERE id=?",
-        (montant_paye, facture_id)
+        "UPDATE factures SET montant_paye=? WHERE id=?",
+        (nouveau_total, facture_id)
     )
     conn.commit()
     conn.close()
