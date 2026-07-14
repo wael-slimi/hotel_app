@@ -3,3 +3,4 @@ __pycache__/
 hotel.db
 photos_chambres/
 fiches_police/
+*.pdf
