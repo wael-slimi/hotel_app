@@ -909,6 +909,12 @@ class FacturationTab(tk.Frame):
                   cursor="hand2",
                   command=lambda: self._voir_depuis_historique(hist_tree)).pack(
             side="left", padx=(14, 8), pady=10)
+        tk.Button(btn_frame, text="Payer le solde", bg=SUCCES, fg="white",
+                  font=("Segoe UI", 9, "bold"), bd=0,
+                  activebackground=SUCCES_HVR, activeforeground="white",
+                  cursor="hand2",
+                  command=lambda: self._payer_solde_depuis_historique(hist_tree)).pack(
+            side="left", padx=4, pady=10)
         tk.Button(btn_frame, text="Exporter en PDF", bg=CARD_BG, fg=TEXT_PRIMARY,
                   font=("Segoe UI", 9), bd=1, relief="solid",
                   activebackground=NEUTRE_CLAIR, cursor="hand2",
@@ -935,6 +941,160 @@ class FacturationTab(tk.Frame):
             messagebox.showerror("Erreur", "Facture introuvable en base.")
             return
         self._afficher_fenetre_facture(facture, lignes, facture_id)
+
+    def _payer_solde_depuis_historique(self, hist_tree):
+        selection = hist_tree.selection()
+        if not selection:
+            messagebox.showwarning("Attention", "Veuillez sélectionner une facture.")
+            return
+        facture_id = int(selection[0])
+        facture, lignes = db.get_facture(facture_id)
+        if facture is None:
+            messagebox.showerror("Erreur", "Facture introuvable en base.")
+            return
+
+        est_paye = bool(facture["payee"]) if "payee" in facture.keys() else False
+        montant_paye = float(facture["montant_paye"] or 0) if "montant_paye" in facture.keys() else 0
+        total = float(facture["montant_total"])
+        reste_du = round(total - montant_paye, 3)
+
+        if est_paye:
+            messagebox.showinfo("Information", "Cette facture est entièrement payée.")
+            return
+        if reste_du <= 0:
+            messagebox.showinfo("Information", "Aucun solde restant à payer.")
+            return
+
+        self._ouvrir_paiement_solde(facture, reste_du)
+
+    def _ouvrir_paiement_solde(self, facture, reste_du):
+        win = tk.Toplevel(self)
+        win.title(f"Payer le solde — Facture {facture['numero']}")
+        win.resizable(False, False)
+        win.transient(self)
+        win.grab_set()
+        win.configure(bg=BG)
+
+        header = tk.Frame(win, bg=SUCCES)
+        header.pack(fill="x")
+        tk.Label(header, text="Payer le solde restant", bg=SUCCES, fg="white",
+                 font=("Segoe UI", 13, "bold")).pack(pady=12, padx=16)
+
+        frame = tk.Frame(win, bg=CARD_BG)
+        frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        client_nom = f"{facture['prenom'] or ''} {facture['nom'] or ''}".strip()
+        if not client_nom:
+            client_nom = facture["nom_client"] or "—"
+
+        tk.Label(frame, text="Client", bg=CARD_BG, fg=TEXT_SECONDARY,
+                 font=("Segoe UI", 9)).grid(row=0, column=0, sticky="w", pady=(8, 2), padx=16)
+        tk.Label(frame, text=client_nom, bg=CARD_BG, fg=TEXT_PRIMARY,
+                 font=("Segoe UI", 11, "bold")).grid(row=0, column=1, sticky="w", padx=16, pady=(8, 2))
+
+        tk.Label(frame, text="Facture n°", bg=CARD_BG, fg=TEXT_SECONDARY,
+                 font=("Segoe UI", 9)).grid(row=1, column=0, sticky="w", pady=2, padx=16)
+        tk.Label(frame, text=facture["numero"], bg=CARD_BG, fg=TEXT_PRIMARY,
+                 font=("Segoe UI", 11, "bold")).grid(row=1, column=1, sticky="w", padx=16, pady=2)
+
+        tk.Label(frame, text="Total facture", bg=CARD_BG, fg=TEXT_SECONDARY,
+                 font=("Segoe UI", 9)).grid(row=2, column=0, sticky="w", pady=2, padx=16)
+        tk.Label(frame, text=f"{total:.3f} TND", bg=CARD_BG, fg=TEXT_PRIMARY,
+                 font=("Segoe UI", 11)).grid(row=2, column=1, sticky="w", padx=16, pady=2)
+
+        tk.Label(frame, text="Déjà payé", bg=CARD_BG, fg=TEXT_SECONDARY,
+                 font=("Segoe UI", 9)).grid(row=3, column=0, sticky="w", pady=2, padx=16)
+        deja_paye = round(total - reste_du, 3)
+        tk.Label(frame, text=f"{deja_paye:.3f} TND", bg=CARD_BG, fg=SUCCES,
+                 font=("Segoe UI", 11, "bold")).grid(row=3, column=1, sticky="w", padx=16, pady=2)
+
+        tk.Label(frame, text="Reste à payer", bg=CARD_BG, fg=TEXT_PRIMARY,
+                 font=("Segoe UI", 10, "bold")).grid(row=4, column=0, sticky="w", pady=4, padx=16)
+        tk.Label(frame, text=f"{reste_du:.3f} TND", bg=CARD_BG, fg=DANGER,
+                 font=("Segoe UI", 13, "bold")).grid(row=4, column=1, sticky="w", padx=16, pady=4)
+
+        tk.Label(frame, text="Mode de paiement", bg=CARD_BG, fg=TEXT_PRIMARY,
+                 font=("Segoe UI", 9)).grid(row=5, column=0, sticky="w", pady=6, padx=16)
+        mode_var = tk.StringVar(value="Espèces")
+        ttk.Combobox(frame, textvariable=mode_var,
+                     values=["Espèces", "Chèque", "Carte bancaire", "Virement"],
+                     width=20, state="readonly").grid(row=5, column=1, sticky="w", padx=16, pady=6)
+
+        tk.Label(frame, text="Montant à payer (TND)", bg=CARD_BG, fg=TEXT_PRIMARY,
+                 font=("Segoe UI", 9)).grid(row=6, column=0, sticky="w", pady=6, padx=16)
+        recu_var = tk.StringVar(value=f"{reste_du:.3f}".replace(".", ","))
+        tk.Entry(frame, textvariable=recu_var, width=15,
+                 font=("Segoe UI", 9), bd=1, relief="solid",
+                 highlightbackground=CARD_BORDER).grid(row=6, column=1, sticky="w", padx=16, pady=6)
+
+        monnaie_var = tk.StringVar(value="")
+        tk.Label(frame, textvariable=monnaie_var, bg=CARD_BG, fg=SUCCES,
+                 font=("Segoe UI", 10, "italic")).grid(
+            row=7, column=0, columnspan=2, pady=8, padx=16)
+
+        def calculer_monnaie(*args):
+            try:
+                recu = float(recu_var.get().replace(",", "."))
+                if recu >= reste_du:
+                    monnaie = round(recu - reste_du, 3)
+                    monnaie_var.set(f"Monnaie à rendre : {monnaie:.3f} TND")
+                else:
+                    solde = round(reste_du - recu, 3)
+                    monnaie_var.set(f"Solde restant après paiement : {solde:.3f} TND")
+            except ValueError:
+                monnaie_var.set("Montant invalide")
+
+        recu_var.trace_add("write", calculer_monnaie)
+
+        def confirmer_paiement():
+            try:
+                recu = float(recu_var.get().replace(",", "."))
+                if recu <= 0:
+                    messagebox.showerror("Erreur", "Le montant doit être positif.", parent=win)
+                    return
+            except ValueError:
+                messagebox.showerror("Erreur", "Montant invalide.", parent=win)
+                return
+
+            nouveau_total_paye = round(deja_paye + recu, 3)
+            solde_restant = round(total - nouveau_total_paye, 3)
+            if solde_restant < 0:
+                solde_restant = 0.0
+
+            facture_id = facture["id"]
+
+            # Update montant_paye in DB
+            conn = get_connection()
+            conn.execute(
+                "UPDATE factures SET montant_paye=? WHERE id=?",
+                (nouveau_total_paye, facture_id))
+            conn.commit()
+            conn.close()
+
+            # If fully paid, mark as payee
+            if nouveau_total_paye >= total:
+                db.set_facture_payee(facture_id)
+                # Update client solde if client exists
+                if facture["client_id"]:
+                    db.set_client_solde(facture["client_id"], 0.0)
+
+            win.destroy()
+            messagebox.showinfo(
+                "Paiement enregistré",
+                f"Montant payé : {recu:.3f} TND\n"
+                f"Total payé : {nouveau_total_paye:.3f} TND / {total:.3f} TND\n"
+                f"Solde restant : {solde_restant:.3f} TND")
+
+        btn_f = tk.Frame(frame, bg=CARD_BG)
+        btn_f.grid(row=8, column=0, columnspan=2, pady=14)
+        tk.Button(btn_f, text="Confirmer le paiement", bg=SUCCES, fg="white",
+                  font=("Segoe UI", 10, "bold"), bd=0,
+                  activebackground=SUCCES_HVR, activeforeground="white",
+                  cursor="hand2", command=confirmer_paiement).pack(side="left", padx=6)
+        tk.Button(btn_f, text="Annuler", bg=CARD_BG, fg=TEXT_PRIMARY,
+                  font=("Segoe UI", 10), bd=1, relief="solid",
+                  activebackground=NEUTRE_CLAIR, cursor="hand2",
+                  command=win.destroy).pack(side="left", padx=6)
 
     def _exporter_depuis_historique(self, hist_tree):
         selection = hist_tree.selection()
