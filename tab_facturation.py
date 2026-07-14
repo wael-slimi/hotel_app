@@ -925,7 +925,13 @@ class FacturationTab(tk.Frame):
                   command=win.destroy).pack(side="right", padx=14, pady=10)
 
         # Double-click to pay solde
-        hist_tree.bind("<Double-1>", lambda e: self._payer_solde_depuis_historique(hist_tree))
+        def on_double_click(event):
+            item = hist_tree.identify_row(event.y)
+            if item:
+                hist_tree.selection_set(item)
+                self._payer_solde_depuis_historique(hist_tree)
+
+        hist_tree.bind("<Double-Button-1>", on_double_click)
 
         hint = tk.Label(win, text="💡 Double-cliquer sur une facture pour payer le solde dû",
                         bg=NEUTRE_CLAIR, fg=PRIMAIRE, font=("Segoe UI", 9),
