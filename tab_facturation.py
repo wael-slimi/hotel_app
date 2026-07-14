@@ -909,12 +909,6 @@ class FacturationTab(tk.Frame):
                   cursor="hand2",
                   command=lambda: self._voir_depuis_historique(hist_tree)).pack(
             side="left", padx=(14, 8), pady=10)
-        tk.Button(btn_frame, text="Payer le solde", bg=SUCCES, fg="white",
-                  font=("Segoe UI", 9, "bold"), bd=0,
-                  activebackground=SUCCES_HVR, activeforeground="white",
-                  cursor="hand2",
-                  command=lambda: self._payer_solde_depuis_historique(hist_tree)).pack(
-            side="left", padx=4, pady=10)
         tk.Button(btn_frame, text="Exporter en PDF", bg=CARD_BG, fg=TEXT_PRIMARY,
                   font=("Segoe UI", 9), bd=1, relief="solid",
                   activebackground=NEUTRE_CLAIR, cursor="hand2",
@@ -929,6 +923,9 @@ class FacturationTab(tk.Frame):
                   font=("Segoe UI", 9), bd=1, relief="solid",
                   activebackground=NEUTRE_CLAIR, cursor="hand2",
                   command=win.destroy).pack(side="right", padx=14, pady=10)
+
+        # Double-click to pay solde
+        hist_tree.bind("<Double-1>", lambda e: self._payer_solde_depuis_historique(hist_tree))
 
     def _voir_depuis_historique(self, hist_tree):
         selection = hist_tree.selection()
