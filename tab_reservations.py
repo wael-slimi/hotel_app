@@ -70,8 +70,8 @@ class ReservationsTab(tk.Frame):
         toolbar = tk.Frame(table_card, bg=CARD_BG)
         toolbar.pack(fill="x", padx=14, pady=(12, 6))
 
-        tk.Label(toolbar, text="Recherche", bg=CARD_BG, fg=TEXT_SECONDARY,
-                 font=("Segoe UI", 9)).pack(side="left")
+        tk.Label(toolbar, text="Recherche (nom, prénom, CIN…)", bg=CARD_BG,
+                 fg=TEXT_SECONDARY, font=("Segoe UI", 9)).pack(side="left")
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *a: self.refresh())
         tk.Entry(toolbar, textvariable=self.search_var, width=22,
@@ -191,7 +191,7 @@ class ReservationsTab(tk.Frame):
         total = 0
         for i, r in enumerate(reservations):
             ligne = (r["nom"], r["prenom"], r["telephone"],
-                     r["chambre_numero"] or "")
+                     r["chambre_numero"] or "", r["numero_identifiant"] or "")
             if recherche and not any(
                     recherche in str(v).lower() for v in ligne):
                 continue
@@ -281,6 +281,30 @@ class ReservationsTab(tk.Frame):
         statut_var = tk.StringVar(
             value=reservation["statut"] if reservation else "RESERVE")
 
+        _linked_client_id = [None]
+
+        def _on_cin_change(*_args):
+            cin = num_id_var.get().strip()
+            if len(cin) < 3 or reservation is not None:
+                hint_lbl.config(text="", fg=TEXT_SECONDARY)
+                _linked_client_id[0] = None
+                return
+            existing = db.get_client_by_identifiant(cin)
+            if existing:
+                nom_var.set(existing["nom"])
+                prenom_var.set(existing["prenom"])
+                tel_var.set(existing["telephone"] or "")
+                type_id_var.set(existing["type_identifiant"])
+                _linked_client_id[0] = existing["id"]
+                hint_lbl.config(
+                    text=f"Client existant trouvé: {existing['prenom']} {existing['nom']}",
+                    fg=SUCCES)
+            else:
+                _linked_client_id[0] = None
+                hint_lbl.config(text="Nouveau client", fg=TEXT_SECONDARY)
+
+        num_id_var.trace_add("write", _on_cin_change)
+
         # ── Section: Client ─────────────────────────────────────────
         tk.Label(form_grid, text="Informations client", bg=NEUTRE_CLAIR,
                  fg=PRIMAIRE, font=("Segoe UI", 10, "bold"), anchor="w").grid(
@@ -302,6 +326,10 @@ class ReservationsTab(tk.Frame):
                                             padx=4, pady=4)
 
         row(5, "N° identifiant", lambda p: entry(p, num_id_var))
+
+        hint_lbl = tk.Label(form_grid, text="", bg=CARD_BG,
+                            fg=TEXT_SECONDARY, font=("Segoe UI", 9, "italic"))
+        hint_lbl.grid(row=5, column=2, sticky="w", padx=4, pady=4)
 
         # ── Section: Séjour ─────────────────────────────────────────
         tk.Label(form_grid, text="Détails du séjour", bg=NEUTRE_CLAIR,
@@ -420,6 +448,7 @@ class ReservationsTab(tk.Frame):
                 "nb_personnes": nb,
                 "notes": notes_var.get().strip(),
                 "statut": statut_var.get(),
+                "client_id": _linked_client_id[0],
             }
 
             if reservation is None:

@@ -166,8 +166,8 @@ class ClientsTab(tk.Frame):
         toolbar = tk.Frame(table_card, bg=CARD_BG)
         toolbar.pack(fill="x", padx=14, pady=(12, 6))
 
-        tk.Label(toolbar, text="Recherche", bg=CARD_BG, fg=TEXT_SECONDARY,
-                 font=("Segoe UI", 9)).pack(side="left")
+        tk.Label(toolbar, text="Recherche (nom, prénom, CIN…)", bg=CARD_BG,
+                 fg=TEXT_SECONDARY, font=("Segoe UI", 9)).pack(side="left")
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *a: self.refresh())
         search_ent = tk.Entry(toolbar, textvariable=self.search_var, width=22,
