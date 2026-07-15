@@ -4,3 +4,5 @@ hotel.db
 photos_chambres/
 fiches_police/
 *.pdf
+hotel_backup_before_sejours.db
+
