@@ -660,6 +660,7 @@ def get_sejours_actifs():
     rows = conn.execute(
         """
         SELECT s.*, c.nom, c.prenom, c.numero_identifiant,
+               c.type_identifiant, c.adresse,
                ch.numero AS chambre_numero, ch.prix AS chambre_prix
         FROM sejours s
         LEFT JOIN clients c ON c.id = s.client_id
