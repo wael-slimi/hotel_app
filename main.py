@@ -3,7 +3,7 @@
 Module main.py - Point d'entree de l'application Gestion d'Hotel.
 Extrait automatiquement du fichier unique gestion_hotel.py, sans aucune
 modification du code original (seuls les imports necessaires ont ete
-ajoutes pour que ce module fonctionne de maniere independante).
+ajoutes pour que ce module fonctionne de maniere independante). sss
 
 Lancement :
     python main.py
