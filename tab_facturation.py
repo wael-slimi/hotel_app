@@ -715,11 +715,12 @@ class FacturationTab(tk.Frame):
         win.geometry("1100x700")
         win.transient(self)
         win.configure(bg=BG)
+        win.minsize(800, 500)
 
-        # Filter card
+        # --- Row 0: Filter card ---
         filtre_card = tk.Frame(win, bg=CARD_BG, bd=0,
                                highlightbackground=CARD_BORDER, highlightthickness=1)
-        filtre_card.pack(fill="x", padx=10, pady=10)
+        filtre_card.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
 
         tk.Label(filtre_card, text="Filtres", bg=CARD_BG, fg=TEXT_PRIMARY,
                  font=("Segoe UI", 13, "bold")).pack(
@@ -767,10 +768,10 @@ class FacturationTab(tk.Frame):
 
         critere_var.trace_add("write", on_critere_change)
 
-        # Table card
+        # --- Row 1: Table card (expands) ---
         table_card = tk.Frame(win, bg=CARD_BG, bd=0,
                               highlightbackground=CARD_BORDER, highlightthickness=1)
-        table_card.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        table_card.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
 
         hist_columns = ("id", "numero", "date", "client", "identifiant",
                         "total", "solde_due", "statut")
@@ -812,6 +813,42 @@ class FacturationTab(tk.Frame):
         tk.Label(table_card, textvariable=compteur_var, bg=CARD_BG,
                  fg=TEXT_SECONDARY, font=("Segoe UI", 9),
                  anchor="e").pack(fill="x", padx=14, pady=(0, 10))
+
+        # --- Row 2: Bottom buttons ---
+        btn_frame = tk.Frame(win, bg=CARD_BG, bd=0,
+                             highlightbackground=CARD_BORDER, highlightthickness=1)
+        btn_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 10))
+
+        tk.Button(btn_frame, text="Voir la facture", bg=PRIMAIRE, fg="white",
+                  font=("Segoe UI", 9, "bold"), bd=0,
+                  activebackground=PRIMAIRE_HVR, activeforeground="white",
+                  cursor="hand2",
+                  command=lambda: self._voir_depuis_historique(hist_tree)).pack(
+            side="left", padx=(14, 8), pady=10)
+        tk.Button(btn_frame, text="Payer le solde", bg=SUCCES, fg="white",
+                  font=("Segoe UI", 9, "bold"), bd=0,
+                  activebackground=SUCCES_HVR, activeforeground="white",
+                  cursor="hand2",
+                  command=lambda: self._payer_solde_depuis_historique(hist_tree)).pack(
+            side="left", padx=4, pady=10)
+        tk.Button(btn_frame, text="Exporter en PDF", bg=CARD_BG, fg=TEXT_PRIMARY,
+                  font=("Segoe UI", 9), bd=1, relief="solid",
+                  activebackground=NEUTRE_CLAIR, cursor="hand2",
+                  command=lambda: self._exporter_depuis_historique(hist_tree)).pack(
+            side="left", padx=4, pady=10)
+        tk.Button(btn_frame, text="Imprimer la liste", bg=CARD_BG, fg=TEXT_PRIMARY,
+                  font=("Segoe UI", 9), bd=1, relief="solid",
+                  activebackground=NEUTRE_CLAIR, cursor="hand2",
+                  command=lambda: self._imprimer_liste_factures(hist_tree)).pack(
+            side="left", padx=4, pady=10)
+        tk.Button(btn_frame, text="Fermer", bg=CARD_BG, fg=TEXT_PRIMARY,
+                  font=("Segoe UI", 9), bd=1, relief="solid",
+                  activebackground=NEUTRE_CLAIR, cursor="hand2",
+                  command=win.destroy).pack(side="right", padx=14, pady=10)
+
+        # Grid config: row 1 (table) expands, rows 0 and 2 stay fixed
+        win.grid_rowconfigure(1, weight=1)
+        win.grid_columnconfigure(0, weight=1)
 
         def appliquer_filtre():
             for item in hist_tree.get_children():
@@ -874,7 +911,7 @@ class FacturationTab(tk.Frame):
                     statut_txt = "Partielle"
                     tag = "partiel"
                 else:
-                    solde_txt = ""
+                    solde_txt = f"{f['montant_total']:.3f}"
                     statut_txt = "En attente"
                     tag = "non_paye"
 
@@ -898,37 +935,6 @@ class FacturationTab(tk.Frame):
         filtre_btn.pack(side="left", padx=12)
 
         appliquer_filtre()
-
-        # Bottom buttons
-        btn_frame = tk.Frame(win, bg=CARD_BG)
-        btn_frame.pack(fill="x", padx=10, pady=(0, 10))
-
-        tk.Button(btn_frame, text="Voir la facture", bg=PRIMAIRE, fg="white",
-                  font=("Segoe UI", 9, "bold"), bd=0,
-                  activebackground=PRIMAIRE_HVR, activeforeground="white",
-                  cursor="hand2",
-                  command=lambda: self._voir_depuis_historique(hist_tree)).pack(
-            side="left", padx=(14, 8), pady=10)
-        tk.Button(btn_frame, text="Payer le solde", bg=SUCCES, fg="white",
-                  font=("Segoe UI", 9, "bold"), bd=0,
-                  activebackground=SUCCES_HVR, activeforeground="white",
-                  cursor="hand2",
-                  command=lambda: self._payer_solde_depuis_historique(hist_tree)).pack(
-            side="left", padx=4, pady=10)
-        tk.Button(btn_frame, text="Exporter en PDF", bg=CARD_BG, fg=TEXT_PRIMARY,
-                  font=("Segoe UI", 9), bd=1, relief="solid",
-                  activebackground=NEUTRE_CLAIR, cursor="hand2",
-                  command=lambda: self._exporter_depuis_historique(hist_tree)).pack(
-            side="left", padx=4, pady=10)
-        tk.Button(btn_frame, text="Imprimer la liste", bg=CARD_BG, fg=TEXT_PRIMARY,
-                  font=("Segoe UI", 9), bd=1, relief="solid",
-                  activebackground=NEUTRE_CLAIR, cursor="hand2",
-                  command=lambda: self._imprimer_liste_factures(hist_tree)).pack(
-            side="left", padx=4, pady=10)
-        tk.Button(btn_frame, text="Fermer", bg=CARD_BG, fg=TEXT_PRIMARY,
-                  font=("Segoe UI", 9), bd=1, relief="solid",
-                  activebackground=NEUTRE_CLAIR, cursor="hand2",
-                  command=win.destroy).pack(side="right", padx=14, pady=10)
 
         # Double-click to pay solde
         def on_double_click(event):
@@ -983,6 +989,10 @@ class FacturationTab(tk.Frame):
         win.transient(self)
         win.grab_set()
         win.configure(bg=BG)
+        win.update_idletasks()
+        ww, wh = 420, 480
+        sw = win.winfo_screenwidth()
+        win.geometry(f"{ww}x{wh}+{(sw - ww) // 2}+40")
 
         header = tk.Frame(win, bg=SUCCES)
         header.pack(fill="x")
@@ -991,6 +1001,8 @@ class FacturationTab(tk.Frame):
 
         frame = tk.Frame(win, bg=CARD_BG)
         frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        total = float(facture["montant_total"])
 
         client_nom = f"{facture['prenom'] or ''} {facture['nom'] or ''}".strip()
         if not client_nom:
