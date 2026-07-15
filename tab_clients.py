@@ -85,39 +85,40 @@ class ClientsTab(tk.Frame):
         self._add_field(form_grid, r, "Venant de", "venant_de"); r += 1
         self._add_field(form_grid, r, "Allant à", "allant_a"); r += 1
 
-        # ── Section: Séjour ─────────────────────────────────────────
-        self._section_header(form_grid, "Séjour", r); r += 1
+        # ── Section: Séjours ────────────────────────────────────────
+        self._section_header(form_grid, "Séjours du client", r); r += 1
 
-        tk.Label(form_grid, text="Chambre réservée", bg=CARD_BG,
-                 fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
-            row=r, column=0, sticky="w", padx=18, pady=3)
-        self.chambre_var = tk.StringVar()
-        self.combo_chambres = ttk.Combobox(
-            form_grid, textvariable=self.chambre_var, width=21, state="readonly")
-        self.combo_chambres.grid(row=r, column=1, sticky="w", padx=4, pady=3)
-        r += 1
+        sejours_frame = tk.Frame(form_grid, bg=CARD_BG)
+        sejours_frame.grid(row=r, column=0, columnspan=2, sticky="ew",
+                           padx=14, pady=(0, 6))
 
-        tk.Label(form_grid, text="Date d'entrée", bg=CARD_BG,
-                 fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
-            row=r, column=0, sticky="w", padx=18, pady=3)
-        self.date_entree = DateEntry(form_grid, width=12)
-        self.date_entree.grid(row=r, column=1, sticky="w", padx=4, pady=3)
-        r += 1
+        sejours_cols = ("id", "chambre", "entree", "sortie", "statut")
+        sejours_headers = {
+            "id": "ID", "chambre": "CHAMBRE",
+            "entree": "ENTRÉE", "sortie": "SORTIE", "statut": "STATUT",
+        }
+        self.sejours_tree = ttk.Treeview(
+            sejours_frame, columns=sejours_cols, show="headings",
+            height=4)
+        style_s = ttk.Style()
+        style_s.configure("Sejours.Treeview", font=("Segoe UI", 8), rowheight=22)
+        style_s.configure("Sejours.Treeview.Heading", font=("Segoe UI", 8, "bold"),
+                          foreground=TEXT_SECONDARY)
+        self.sejours_tree.configure(style="Sejours.Treeview")
 
-        tk.Label(form_grid, text="Date de sortie", bg=CARD_BG,
-                 fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
-            row=r, column=0, sticky="w", padx=18, pady=3)
-        self.date_sortie = DateEntry(form_grid, width=12)
-        self.date_sortie.grid(row=r, column=1, sticky="w", padx=4, pady=3)
-        r += 1
+        for c in sejours_cols:
+            self.sejours_tree.heading(c, text=sejours_headers[c])
+            w = 35 if c == "id" else 70 if c == "chambre" else 80
+            self.sejours_tree.column(c, width=w, anchor="center")
 
-        tk.Label(form_grid, text="Statut", bg=CARD_BG,
-                 fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
-            row=r, column=0, sticky="w", padx=18, pady=3)
-        self.statut_var = tk.StringVar(value="En cours")
-        ttk.Combobox(form_grid, textvariable=self.statut_var,
-                     values=["En cours", "Sorti"], width=21,
-                     state="readonly").grid(row=r, column=1, sticky="w", padx=4, pady=3)
+        self.sejours_tree.tag_configure("en_cours", foreground=SUCCES)
+        self.sejours_tree.tag_configure("termine", foreground=TEXT_SECONDARY)
+
+        sejours_scroll = ttk.Scrollbar(sejours_frame, orient="vertical",
+                                        command=self.sejours_tree.yview)
+        self.sejours_tree.configure(yscrollcommand=sejours_scroll.set)
+        self.sejours_tree.pack(side="left", fill="both", expand=True)
+        sejours_scroll.pack(side="right", fill="y")
         r += 1
 
         # ── Buttons ─────────────────────────────────────────────────
@@ -161,7 +162,7 @@ class ClientsTab(tk.Frame):
                               highlightbackground=CARD_BORDER, highlightthickness=1)
         table_card.pack(fill="both", expand=True)
 
-        # Search + filter bar
+        # Search bar (no statut filter needed)
         toolbar = tk.Frame(table_card, bg=CARD_BG)
         toolbar.pack(fill="x", padx=14, pady=(12, 6))
 
@@ -174,25 +175,14 @@ class ClientsTab(tk.Frame):
                               highlightbackground=CARD_BORDER)
         search_ent.pack(side="left", padx=(4, 12))
 
-        tk.Label(toolbar, text="Filtre", bg=CARD_BG, fg=TEXT_SECONDARY,
-                 font=("Segoe UI", 9)).pack(side="left")
-        self.filtre_statut = tk.StringVar(value="Tous")
-        ttk.Combobox(toolbar, textvariable=self.filtre_statut,
-                     values=["Tous", "En cours", "Sorti"], width=12,
-                     state="readonly").pack(side="left", padx=4)
-        self.filtre_statut.trace_add("write", lambda *a: self.refresh())
-
-        # Treeview
+        # Treeview — client list
         tree_frame = tk.Frame(table_card, bg=CARD_BG)
         tree_frame.pack(fill="both", expand=True, padx=14, pady=(0, 12))
 
-        columns = ("id", "nom", "prenom", "identifiant", "chambre",
-                   "entree", "sortie", "statut", "solde")
+        columns = ("id", "nom", "prenom", "identifiant", "solde")
         headers = {
             "id": "ID", "nom": "NOM", "prenom": "PRÉNOM",
-            "identifiant": "IDENTIFIANT", "chambre": "CHAMBRE",
-            "entree": "ENTRÉE", "sortie": "SORTIE", "statut": "STATUT",
-            "solde": "SOLDE (TND)",
+            "identifiant": "IDENTIFIANT", "solde": "SOLDE (TND)",
         }
         self.tree = ttk.Treeview(tree_frame, columns=columns, show="headings",
                                  height=22)
@@ -204,20 +194,16 @@ class ClientsTab(tk.Frame):
 
         for c in columns:
             self.tree.heading(c, text=headers[c])
-            width = 50 if c == "id" else 90 if c in ("chambre", "statut") else 100
+            width = 50 if c == "id" else 110 if c in ("nom", "prenom", "identifiant") else 100
             self.tree.column(c, width=width, anchor="center")
         self.tree.column("nom", width=110, anchor="w")
         self.tree.column("prenom", width=110, anchor="w")
         self.tree.column("identifiant", width=110, anchor="w")
-        self.tree.column("entree", width=85, anchor="center")
-        self.tree.column("sortie", width=85, anchor="center")
         self.tree.column("solde", width=110, anchor="center")
 
         # Zebra striping tags
         self.tree.tag_configure("odd", background=NEUTRE_CLAIR)
         self.tree.tag_configure("even", background=CARD_BG)
-        self.tree.tag_configure("en_cours", foreground=SUCCES)
-        self.tree.tag_configure("sorti", foreground=TEXT_SECONDARY)
 
         scrollbar = ttk.Scrollbar(tree_frame, orient="vertical",
                                   command=self.tree.yview)
@@ -249,63 +235,44 @@ class ClientsTab(tk.Frame):
 
     # ------------------------------------------------------------------
     def refresh(self):
-        chambres = db.get_chambres()
-        self.chambres_map = {"": None}
-        valeurs = [""]
-        current_chambre_id = self._get_current_chambre_id()
-        for ch in chambres:
-            if ch["etat"] == "Libre" or ch["id"] == current_chambre_id:
-                texte = f"{ch['numero']} - {ch['type']} ({ch['prix']} TND)"
-                self.chambres_map[texte] = ch["id"]
-                valeurs.append(texte)
-        self.combo_chambres["values"] = valeurs
-        if self.chambre_var.get() not in valeurs:
-            self.chambre_var.set("")
-
         for item in self.tree.get_children():
             self.tree.delete(item)
 
-        statut_filtre = self.filtre_statut.get()
-        if statut_filtre == "Tous":
-            clients = db.get_clients()
-        else:
-            clients = db.get_clients(statut_filtre)
-
+        clients = db.get_clients()
         recherche = self.search_var.get().strip().lower()
 
         for i, c in enumerate(clients):
-            ligne = (c["nom"], c["prenom"], c["numero_identifiant"],
-                     c["chambre_numero"] or "")
+            ligne = (c["nom"], c["prenom"], c["numero_identifiant"])
             if recherche and not any(recherche in str(v).lower() for v in ligne):
                 continue
-
-            # Status badge text
-            statut = c["statut"]
-            if statut == "En cours":
-                statut_txt = "En cours"
-            else:
-                statut_txt = "Sorti"
 
             solde_val = c["solde"] or 0.0
             solde_txt = f"{solde_val:.3f}" if solde_val else "0.000"
 
             row_tag = "odd" if i % 2 else "even"
-            statut_tag = "en_cours" if statut == "En cours" else "sorti"
 
             self.tree.insert("", "end", iid=str(c["id"]),
-                             tags=(row_tag, statut_tag), values=(
+                             tags=(row_tag,), values=(
                 c["id"], c["nom"], c["prenom"], c["numero_identifiant"],
-                c["chambre_numero"] or "-",
-                iso_to_date_str(c["date_entree"]) or c["date_entree"],
-                iso_to_date_str(c["date_sortie"]) or c["date_sortie"],
-                statut_txt, solde_txt,
+                solde_txt,
             ))
 
-    def _get_current_chambre_id(self):
-        if not self.selected_client_id:
-            return None
-        client = db.get_client(self.selected_client_id)
-        return client["chambre_id"] if client else None
+    def _load_sejours(self, client_id):
+        for item in self.sejours_tree.get_children():
+            self.sejours_tree.delete(item)
+
+        sejours = db.get_sejours_client(client_id)
+        for s in sejours:
+            statut = s["statut"]
+            tag = "en_cours" if statut == "En cours" else "termine"
+            self.sejours_tree.insert("", "end", iid=str(s["id"]),
+                                     tags=(tag,), values=(
+                s["id"],
+                s["chambre_numero"] or "-",
+                iso_to_date_str(s["date_entree"]) or s["date_entree"],
+                iso_to_date_str(s["date_sortie"]) or "-",
+                statut,
+            ))
 
     def on_select(self, event=None):
         selection = self.tree.selection()
@@ -326,35 +293,13 @@ class ClientsTab(tk.Frame):
         self.vars["telephone"].set(client["telephone"])
         self.vars["venant_de"].set(client["venant_de"])
         self.vars["allant_a"].set(client["allant_a"])
-        self.statut_var.set(client["statut"])
 
         if client["date_naissance"]:
             self.date_naissance.set(iso_to_date_str(client["date_naissance"]))
         else:
             self.date_naissance.set("")
-        if client["date_entree"]:
-            self.date_entree.set(iso_to_date_str(client["date_entree"]))
-        if client["date_sortie"]:
-            self.date_sortie.set(iso_to_date_str(client["date_sortie"]))
 
-        self.refresh_chambre_combo(client)
-
-    def refresh_chambre_combo(self, client):
-        chambres = db.get_chambres()
-        valeurs = [""]
-        self.chambres_map = {"": None}
-        for ch in chambres:
-            if ch["etat"] == "Libre" or ch["id"] == client["chambre_id"]:
-                texte = f"{ch['numero']} - {ch['type']} ({ch['prix']} TND)"
-                self.chambres_map[texte] = ch["id"]
-                valeurs.append(texte)
-        self.combo_chambres["values"] = valeurs
-        if client["chambre_id"]:
-            for texte, cid in self.chambres_map.items():
-                if cid == client["chambre_id"]:
-                    self.chambre_var.set(texte)
-                    return
-        self.chambre_var.set("")
+        self._load_sejours(client_id)
 
     def nouveau(self):
         self.selected_client_id = None
@@ -362,10 +307,8 @@ class ClientsTab(tk.Frame):
             var.set("")
         self.vars["type_identifiant"].set(TYPES_IDENTIFIANT[0])
         self.date_naissance.set("")
-        self.date_entree.set_date(date.today())
-        self.date_sortie.set_date(date.today())
-        self.statut_var.set("En cours")
-        self.chambre_var.set("")
+        for item in self.sejours_tree.get_children():
+            self.sejours_tree.delete(item)
         self.refresh()
         self.tree.selection_remove(self.tree.selection())
 
@@ -388,27 +331,12 @@ class ClientsTab(tk.Frame):
             return None
 
         date_naissance_iso = date_str_to_iso(self.date_naissance.get())
-        date_entree_iso = date_str_to_iso(self.date_entree.get())
-        date_sortie_iso = date_str_to_iso(self.date_sortie.get())
 
         today = date.today().isoformat()
 
         if date_naissance_iso and date_naissance_iso > today:
             messagebox.showerror("Erreur", "La date de naissance ne peut pas être dans le futur.")
             return None
-
-        if date_entree_iso and date_entree_iso < today:
-            messagebox.showerror("Erreur", "La date d'entrée ne peut pas être dans le passé.")
-            return None
-
-        if date_entree_iso and date_sortie_iso and date_sortie_iso < date_entree_iso:
-            messagebox.showerror(
-                "Erreur", "La date de sortie doit être après la date d'entrée."
-            )
-            return None
-
-        chambre_texte = self.chambre_var.get()
-        chambre_id = self.chambres_map.get(chambre_texte)
 
         data = {
             "nom": nom,
@@ -421,10 +349,6 @@ class ClientsTab(tk.Frame):
             "telephone": self.vars["telephone"].get().strip(),
             "venant_de": self.vars["venant_de"].get().strip(),
             "allant_a": self.vars["allant_a"].get().strip(),
-            "chambre_id": chambre_id,
-            "date_entree": date_entree_iso,
-            "date_sortie": date_sortie_iso,
-            "statut": self.statut_var.get(),
         }
         return data
 
@@ -455,7 +379,7 @@ class ClientsTab(tk.Frame):
         if not messagebox.askyesno(
                 "Confirmation",
                 "Voulez-vous vraiment supprimer ce client ? "
-                "Sa chambre sera libérée."):
+                "Ses séjours actifs seront terminés et les chambres libérées."):
             return
         db.delete_client(self.selected_client_id)
         self.nouveau()
@@ -469,21 +393,21 @@ class ClientsTab(tk.Frame):
         client = db.get_client(self.selected_client_id)
         if not client:
             return
-        if client["statut"] == "Sorti":
-            messagebox.showinfo("Information", "Ce client est déjà sorti.")
+
+        sejour = db.get_sejour_actif_client(self.selected_client_id)
+        if not sejour:
+            messagebox.showinfo("Information", "Ce client n'a pas de séjour actif.")
             return
 
         if not messagebox.askyesno(
                 "Confirmation",
                 f"Confirmer la sortie de {client['prenom']} {client['nom']} "
-                f"et libérer la chambre {client['chambre_numero'] or ''} ?"):
+                f"et libérer la chambre {sejour['chambre_numero'] or ''} ?"):
             return
 
-        data = dict(client)
-        data["statut"] = "Sorti"
-        data["date_sortie"] = date.today().strftime("%Y-%m-%d")
-        db.update_client(self.selected_client_id, data)
+        db.checkout_sejour(sejour["id"])
         self.refresh()
+        self._load_sejours(self.selected_client_id)
         self.app.refresh_rooms_tab()
         messagebox.showinfo("Succès", "Le client est marqué comme sorti et la chambre est libérée.")
 

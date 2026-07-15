@@ -184,6 +184,7 @@ class RoomsTab(tk.Frame):
         self.app = app
         self.selected_chambre_id = None
         self._thumb_cache = {}
+        self._occ_map = {}
 
         self._build_ui()
         self.refresh()
@@ -307,19 +308,39 @@ class RoomsTab(tk.Frame):
         self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
     # ------------------------------------------------------------------
+    def _statut_reel(self, chambre):
+        if chambre["id"] in self._occ_map:
+            return "Occupée"
+        return chambre["etat"]
+
+    # ------------------------------------------------------------------
     def refresh(self):
         for w in self.grid_frame.winfo_children():
             w.destroy()
         self._thumb_cache.clear()
 
-        chambres = db.get_chambres()
+        all_chambres = db.get_chambres()
+        sejours_actifs = db.get_sejours_actifs()
+
+        self._occ_map = {s["chambre_id"]: s for s in sejours_actifs}
+
+        # KPI stats (computed from all rooms + sejours)
+        nb_occ = len(self._occ_map)
+        total = len(all_chambres)
+        libre = total - nb_occ
+        taux = (nb_occ / total * 100) if total else 0
+        self.kpi_total.configure(text=str(total))
+        self.kpi_occ.configure(text=str(nb_occ))
+        self.kpi_libre.configure(text=str(libre))
+        self.kpi_taux.configure(text=f"{taux:.1f}%")
 
         # Apply filters
+        chambres = all_chambres
         filtre_etat = self.filtre_etat_var.get()
         filtre_etage = self.filtre_etage_var.get()
 
         if filtre_etat != "Tous":
-            chambres = [c for c in chambres if c["etat"] == filtre_etat]
+            chambres = [c for c in chambres if self._statut_reel(c) == filtre_etat]
         if filtre_etage != "Tous":
             chambres = [c for c in chambres
                         if c["numero"].split("-")[0] == filtre_etage]
@@ -352,7 +373,7 @@ class RoomsTab(tk.Frame):
                 row_index += 1
                 col = 0
 
-            self._creer_tile(ch, row_index, col)
+            self._creer_tile(ch, row_index, col, self._statut_reel(ch))
             col += 1
             if col >= NB_COLONNES:
                 col = 0
@@ -361,18 +382,9 @@ class RoomsTab(tk.Frame):
         for c in range(NB_COLONNES):
             self.grid_frame.grid_columnconfigure(c, weight=1)
 
-        # Update KPI stats
-        occ, total = db.taux_occupation()
-        libre = total - occ
-        taux = (occ / total * 100) if total else 0
-        self.kpi_total.configure(text=str(total))
-        self.kpi_occ.configure(text=str(occ))
-        self.kpi_libre.configure(text=str(libre))
-        self.kpi_taux.configure(text=f"{taux:.1f}%")
-
     # ------------------------------------------------------------------
-    def _creer_tile(self, chambre, row, col):
-        couleur = COULEURS_ETAT.get(chambre["etat"], TEXT_SECONDARY)
+    def _creer_tile(self, chambre, row, col, statut):
+        couleur = COULEURS_ETAT.get(statut, TEXT_SECONDARY)
 
         tile = tk.Frame(self.grid_frame, bg=CARD_BG, bd=0,
                         highlightbackground=CARD_BORDER, highlightthickness=1,
@@ -421,7 +433,7 @@ class RoomsTab(tk.Frame):
         render_and_set(0)
 
         # Status pill badge (rounded pill shape)
-        pill = tk.Label(tile, text=chambre["etat"], bg=couleur, fg="white",
+        pill = tk.Label(tile, text=statut, bg=couleur, fg="white",
                         font=("Segoe UI", 7, "bold"), padx=8, pady=2)
         pill.place(relx=1.0, rely=0.0, anchor="ne", x=-6, y=6)
 
@@ -479,12 +491,14 @@ class RoomsTab(tk.Frame):
         win.wait_visibility()
         win.grab_set()
 
+        statut = self._statut_reel(chambre)
+
         BLEU = PRIMAIRE
         header = tk.Frame(win, bg=BLEU)
         header.pack(fill="x")
         tk.Label(
             header,
-            text=f"Chambre {chambre['numero']} — {chambre['etat']}",
+            text=f"Chambre {chambre['numero']} — {statut}",
             bg=BLEU, fg="white",
             font=("Segoe UI", 13, "bold")
         ).pack(pady=12, padx=16)
@@ -499,42 +513,28 @@ class RoomsTab(tk.Frame):
             ttk.Label(frame, text=valeur or "—").grid(
                 row=row, column=1, sticky="w", padx=6, pady=3)
 
-        if chambre["etat"] == "Occupée":
-            conn = get_connection()
-            client = conn.execute(
-                """
-                SELECT c.*, ch.numero AS chambre_numero
-                FROM clients c
-                JOIN chambres ch ON ch.id = c.chambre_id
-                WHERE c.chambre_id = ? AND c.statut = 'En cours'
-                ORDER BY c.id DESC LIMIT 1
-                """, (chambre["id"],)
-            ).fetchone()
-            conn.close()
-
-            if client:
-                ligne("Nom", f"{client['prenom']} {client['nom']}", 0)
-                ligne("Identifiant",
-                      f"{client['type_identifiant']} : {client['numero_identifiant']}", 1)
-                ligne("Téléphone", client["telephone"], 2)
-                ligne("Venant de", client["venant_de"], 3)
-                ligne("Allant à", client["allant_a"], 4)
+        if statut == "Occupée":
+            sejour = self._occ_map.get(chambre["id"])
+            if sejour:
+                ligne("Nom", f"{sejour['prenom']} {sejour['nom']}", 0)
+                ligne("Identifiant", sejour["numero_identifiant"], 1)
+                ligne("Chambre", sejour["chambre_numero"], 2)
                 ligne("Date d'entrée",
-                      iso_to_date_str(client["date_entree"]) or client["date_entree"], 5)
+                      iso_to_date_str(sejour["date_entree"]) or sejour["date_entree"], 3)
                 ligne("Date de sortie prévue",
-                      iso_to_date_str(client["date_sortie"]) or client["date_sortie"], 6)
+                      iso_to_date_str(sejour["date_sortie"]) or sejour["date_sortie"], 4)
                 try:
-                    sortie = datetime.strptime(client["date_sortie"], "%Y-%m-%d").date()
+                    sortie = datetime.strptime(sejour["date_sortie"], "%Y-%m-%d").date()
                     restant = (sortie - date.today()).days
                     texte = f"{restant} nuit(s)" if restant > 0 else "Départ prévu aujourd'hui"
-                    ligne("Nuits restantes", texte, 7)
+                    ligne("Nuits restantes", texte, 5)
                 except Exception:
                     pass
             else:
-                ttk.Label(frame, text="Aucun client trouvé.").grid(
+                ttk.Label(frame, text="Aucun séjour actif trouvé.").grid(
                     row=0, column=0, columnspan=2, pady=8)
 
-        elif chambre["etat"] == "Réservée":
+        elif statut == "Réservée":
             conn = get_connection()
             rez = conn.execute(
                 """

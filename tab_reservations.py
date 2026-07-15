@@ -510,34 +510,41 @@ class ReservationsTab(tk.Frame):
             messagebox.showerror("Erreur",
                                  "Aucune chambre associée à cette réservation.")
             return
+
+        client = None
+        if r.get("client_id"):
+            client = db.get_client(r["client_id"])
+        if not client and r.get("numero_identifiant"):
+            client = db.get_client_by_identifiant(r["numero_identifiant"])
+
+        if not client:
+            messagebox.showerror("Erreur",
+                                 "Aucun client associé à cette réservation. "
+                                 "Veuillez d'abord créer le client.")
+            return
+
+        active = db.get_sejour_actif_client(client["id"])
+        if active:
+            messagebox.showerror("Erreur",
+                                 f"{client['prenom']} {client['nom']} a déjà "
+                                 f"un séjour actif en chambre {active['chambre_numero']}.")
+            return
+
         if not messagebox.askyesno(
                 "Confirmer le Check-in",
-                f"Confirmer l'arrivée de {r['prenom']} {r['nom']} "
+                f"Confirmer l'arrivée de {client['prenom']} {client['nom']} "
                 f"en chambre {r['chambre_numero']} ?"):
             return
 
-        data_client = {
-            "nom": r["nom"], "prenom": r["prenom"],
-            "type_identifiant": r["type_identifiant"],
-            "numero_identifiant": r["numero_identifiant"],
-            "date_naissance": "", "lieu_naissance": "", "adresse": "",
-            "telephone": r["telephone"], "venant_de": "", "allant_a": "",
-            "chambre_id": r["chambre_id"],
-            "date_entree": date.today().strftime("%Y-%m-%d"),
-            "date_sortie": r["date_depart"],
-            "statut": "En cours",
-        }
         try:
-            db.add_client(data_client)
-        except ValueError as e:
+            db.add_sejour(client["id"], r["chambre_id"],
+                          date.today().strftime("%Y-%m-%d"))
+        except Exception as e:
             messagebox.showerror("Erreur", str(e))
             return
 
-        conn = get_connection()
-        conn.execute("DELETE FROM reservations WHERE id=?",
-                     (self.selected_reservation_id,))
-        conn.commit()
-        conn.close()
+        db.update_reservation(self.selected_reservation_id,
+                              {"statut": "CHECKED_IN"})
 
         self.selected_reservation_id = None
         self.refresh()
@@ -545,5 +552,5 @@ class ReservationsTab(tk.Frame):
         self.app.refresh_clients_tab()
         messagebox.showinfo(
             "Check-in effectué",
-            f"{r['prenom']} {r['nom']} est maintenant enregistré(e) "
+            f"{client['prenom']} {client['nom']} est maintenant enregistré(e) "
             f"comme client en chambre {r['chambre_numero']}.")
