@@ -311,37 +311,19 @@ class FacturationTab(tk.Frame):
         self.client_map = {}
         valeurs = []
 
-        for c in db.get_clients("En cours"):
-            if not c["chambre_id"]:
-                continue
-            texte = (f"[CLIENT] {c['nom']} {c['prenom']} - Chambre "
-                     f"{c['chambre_numero']} ({c['numero_identifiant']})")
+        for s in db.get_sejours_actifs():
+            texte = (f"[SÉJOUR] {s['prenom']} {s['nom']} - Chambre "
+                     f"{s['chambre_numero']} ({s['numero_identifiant']})")
             self.client_map[texte] = {
-                "id": c["id"], "nom": c["nom"], "prenom": c["prenom"],
-                "numero_identifiant": c["numero_identifiant"],
-                "type_identifiant": c["type_identifiant"],
-                "adresse": c["adresse"], "chambre_id": c["chambre_id"],
-                "chambre_numero": c["chambre_numero"],
-                "chambre_prix": c["chambre_prix"],
-                "date_entree": c["date_entree"], "date_sortie": c["date_sortie"],
+                "id": s["client_id"], "nom": s["nom"], "prenom": s["prenom"],
+                "numero_identifiant": s["numero_identifiant"],
+                "type_identifiant": s["type_identifiant"],
+                "adresse": s["adresse"], "chambre_id": s["chambre_id"],
+                "chambre_numero": s["chambre_numero"],
+                "chambre_prix": s["chambre_prix"],
+                "date_entree": s["date_entree"], "date_sortie": s["date_sortie"],
+                "sejour_id": s["id"],
                 "is_reservation": False,
-            }
-            valeurs.append(texte)
-
-        for r in db.get_reservations("RESERVE"):
-            if not r["chambre_id"]:
-                continue
-            texte = (f"[RÉSERV.] {r['nom']} {r['prenom']} - Chambre "
-                     f"{r['chambre_numero']} ({r['numero_identifiant'] or 'sans ID'})")
-            self.client_map[texte] = {
-                "id": r["id"], "nom": r["nom"], "prenom": r["prenom"],
-                "numero_identifiant": r["numero_identifiant"],
-                "type_identifiant": r["type_identifiant"],
-                "adresse": "", "chambre_id": r["chambre_id"],
-                "chambre_numero": r["chambre_numero"],
-                "chambre_prix": r["chambre_prix"],
-                "date_entree": r["date_arrivee"], "date_sortie": r["date_depart"],
-                "is_reservation": True,
             }
             valeurs.append(texte)
 
@@ -662,6 +644,7 @@ class FacturationTab(tk.Frame):
             remise=remise,
             mode_paiement=self.mode_var.get(),
             nom_client=nom_client,
+            sejour_id=client.get("sejour_id"),
         )
 
         self.derniere_facture_id = facture_id
@@ -1211,6 +1194,7 @@ class FacturationTab(tk.Frame):
                 remise=remise,
                 mode_paiement=self.mode_var.get(),
                 nom_client=nom_client,
+                sejour_id=client.get("sejour_id"),
             )
             self.facture_id_map[texte] = facture_id
 
