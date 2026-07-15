@@ -97,11 +97,7 @@ def init_db():
             telephone TEXT DEFAULT '',
             venant_de TEXT DEFAULT '',
             allant_a TEXT DEFAULT '',
-            chambre_id INTEGER,
-            date_entree TEXT DEFAULT '',
-            date_sortie TEXT DEFAULT '',
-            statut TEXT NOT NULL DEFAULT 'En cours',
-            FOREIGN KEY (chambre_id) REFERENCES chambres(id) ON DELETE SET NULL
+            solde REAL DEFAULT 0
         )
         """
     )
@@ -209,6 +205,94 @@ def init_db():
         )
         """
     )
+
+    conn.commit()
+
+    # --- Sejours table (new architecture) ---
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sejours (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            client_id INTEGER NOT NULL,
+            chambre_id INTEGER NOT NULL,
+            date_entree TEXT NOT NULL,
+            date_sortie TEXT DEFAULT '',
+            statut TEXT NOT NULL DEFAULT 'En cours',
+            FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE,
+            FOREIGN KEY (chambre_id) REFERENCES chambres(id) ON DELETE SET NULL
+        )
+        """
+    )
+
+    # --- Migration: add client_id to reservations ---
+    try:
+        cur.execute("ALTER TABLE reservations ADD COLUMN client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL")
+        conn.commit()
+    except Exception:
+        pass
+
+    # --- Migration: add sejour_id to factures ---
+    try:
+        cur.execute("ALTER TABLE factures ADD COLUMN sejour_id INTEGER REFERENCES sejours(id) ON DELETE SET NULL")
+        conn.commit()
+    except Exception:
+        pass
+
+    # --- Migration: create sejours from existing clients with active rooms ---
+    try:
+        cur.execute("SELECT COUNT(*) AS n FROM sejours")
+        if cur.fetchone()["n"] == 0:
+            cur.execute("PRAGMA table_info(clients)")
+            existing_cols = {c["name"] for c in cur.fetchall()}
+            if "chambre_id" in existing_cols:
+                # Get valid room IDs
+                valid_rooms = {r["id"] for r in cur.execute("SELECT id FROM chambres").fetchall()}
+                # Get columns available for dates
+                has_dates = "date_entree" in existing_cols and "date_sortie" in existing_cols
+                has_statut = "statut" in existing_cols
+
+                cur.execute("SELECT id, chambre_id" + 
+                           (", date_entree, date_sortie" if has_dates else "") +
+                           (", statut" if has_statut else "") +
+                           " FROM clients WHERE chambre_id IS NOT NULL")
+                old_clients = cur.fetchall()
+                for oc in old_clients:
+                    if oc["chambre_id"] not in valid_rooms:
+                        continue
+                    st = oc["statut"] if has_statut else "En cours"
+                    sejour_statut = "En cours" if st == "En cours" else "Terminé"
+                    d_entree = oc["date_entree"] if has_dates else ""
+                    d_sortie = oc["date_sortie"] if has_dates else ""
+                    cur.execute(
+                        "INSERT INTO sejours (client_id, chambre_id, date_entree, date_sortie, statut) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (oc["id"], oc["chambre_id"], d_entree, d_sortie, sejour_statut),
+                    )
+                conn.commit()
+    except Exception:
+        pass
+
+    # --- Migration: link existing reservations to clients by numero_identifiant ---
+    try:
+        cur.execute(
+            "SELECT r.id, r.numero_identifiant, c.id AS client_id "
+            "FROM reservations r "
+            "LEFT JOIN clients c ON c.numero_identifiant = r.numero_identifiant "
+            "WHERE r.client_id IS NULL AND c.id IS NOT NULL"
+        )
+        for row in cur.fetchall():
+            cur.execute("UPDATE reservations SET client_id=? WHERE id=?", (row["client_id"], row["id"]))
+        conn.commit()
+    except Exception:
+        pass
+
+    # --- Migration: remove old columns from clients (after migration) ---
+    for col in ("chambre_id", "date_entree", "date_sortie", "statut"):
+        try:
+            cur.execute(f"ALTER TABLE clients DROP COLUMN {col}")
+            conn.commit()
+        except Exception:
+            pass
 
     conn.commit()
 
@@ -401,28 +485,11 @@ def set_chambre_photos(chambre_id, paths):
 # ---------------------------------------------------------------------------
 # Clients
 # ---------------------------------------------------------------------------
-def get_clients(statut=None):
+def get_clients():
     conn = get_connection()
-    if statut:
-        rows = conn.execute(
-            """
-            SELECT c.*, ch.numero AS chambre_numero, ch.prix AS chambre_prix
-            FROM clients c
-            LEFT JOIN chambres ch ON ch.id = c.chambre_id
-            WHERE c.statut = ?
-            ORDER BY c.id DESC
-            """,
-            (statut,),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            """
-            SELECT c.*, ch.numero AS chambre_numero, ch.prix AS chambre_prix
-            FROM clients c
-            LEFT JOIN chambres ch ON ch.id = c.chambre_id
-            ORDER BY c.id DESC
-            """
-        ).fetchall()
+    rows = conn.execute(
+        "SELECT * FROM clients ORDER BY id DESC"
+    ).fetchall()
     conn.close()
     return rows
 
@@ -430,13 +497,7 @@ def get_clients(statut=None):
 def get_client(client_id):
     conn = get_connection()
     row = conn.execute(
-        """
-        SELECT c.*, ch.numero AS chambre_numero, ch.prix AS chambre_prix
-        FROM clients c
-        LEFT JOIN chambres ch ON ch.id = c.chambre_id
-        WHERE c.id = ?
-        """,
-        (client_id,),
+        "SELECT * FROM clients WHERE id = ?", (client_id,)
     ).fetchone()
     conn.close()
     return row
@@ -461,7 +522,7 @@ def client_exists_by_identifiant(numero_identifiant, exclude_id=None):
 
 
 def add_client(data):
-    """data: dict avec les clés correspondant aux colonnes de la table."""
+    """data: dict with personal info keys. Room is managed via sejours."""
     if client_exists_by_identifiant(data["numero_identifiant"]):
         raise ValueError(
             f"Un client avec le numéro d'identifiant '{data['numero_identifiant']}' existe déjà."
@@ -473,27 +534,32 @@ def add_client(data):
         INSERT INTO clients (
             nom, prenom, type_identifiant, numero_identifiant,
             date_naissance, lieu_naissance, adresse, telephone,
-            venant_de, allant_a, chambre_id, date_entree, date_sortie, statut
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            venant_de, allant_a
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             data["nom"], data["prenom"], data["type_identifiant"],
-            data["numero_identifiant"], data["date_naissance"],
-            data["lieu_naissance"], data["adresse"], data["telephone"],
-            data["venant_de"], data["allant_a"], data["chambre_id"],
-            data["date_entree"], data["date_sortie"], data.get("statut", "En cours"),
+            data["numero_identifiant"], data.get("date_naissance", ""),
+            data.get("lieu_naissance", ""), data.get("adresse", ""),
+            data.get("telephone", ""), data.get("venant_de", ""),
+            data.get("allant_a", ""),
         ),
     )
     client_id = cur.lastrowid
-    # Si une chambre est associée, on la marque occupée
-    if data.get("chambre_id"):
-        cur.execute(
-            "UPDATE chambres SET etat='Occupée' WHERE id=?",
-            (data["chambre_id"],),
-        )
     conn.commit()
     conn.close()
     return client_id
+
+
+def get_client_by_identifiant(numero_identifiant):
+    """Lookup existing client by CIN/passport/cart de sejour for auto-fill."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM clients WHERE numero_identifiant=?",
+        (numero_identifiant,),
+    ).fetchone()
+    conn.close()
+    return row
 
 
 def update_client(client_id, data):
@@ -503,52 +569,23 @@ def update_client(client_id, data):
         )
     conn = get_connection()
     cur = conn.cursor()
-
-    # Récupérer l'ancienne chambre pour la libérer si elle change
-    ancien = cur.execute(
-        "SELECT chambre_id FROM clients WHERE id=?", (client_id,)
-    ).fetchone()
-    ancienne_chambre = ancien["chambre_id"] if ancien else None
-
     cur.execute(
         """
         UPDATE clients SET
             nom=?, prenom=?, type_identifiant=?, numero_identifiant=?,
             date_naissance=?, lieu_naissance=?, adresse=?, telephone=?,
-            venant_de=?, allant_a=?, chambre_id=?, date_entree=?,
-            date_sortie=?, statut=?
+            venant_de=?, allant_a=?
         WHERE id=?
         """,
         (
             data["nom"], data["prenom"], data["type_identifiant"],
-            data["numero_identifiant"], data["date_naissance"],
-            data["lieu_naissance"], data["adresse"], data["telephone"],
-            data["venant_de"], data["allant_a"], data["chambre_id"],
-            data["date_entree"], data["date_sortie"], data.get("statut", "En cours"),
+            data["numero_identifiant"], data.get("date_naissance", ""),
+            data.get("lieu_naissance", ""), data.get("adresse", ""),
+            data.get("telephone", ""), data.get("venant_de", ""),
+            data.get("allant_a", ""),
             client_id,
         ),
     )
-
-    nouvelle_chambre = data.get("chambre_id")
-
-    # Libérer l'ancienne chambre si elle a changé
-    if ancienne_chambre and ancienne_chambre != nouvelle_chambre:
-        cur.execute(
-            "UPDATE chambres SET etat='Libre' WHERE id=?", (ancienne_chambre,)
-        )
-
-    # Occuper la nouvelle chambre si le client est toujours en cours
-    if nouvelle_chambre and data.get("statut", "En cours") == "En cours":
-        cur.execute(
-            "UPDATE chambres SET etat='Occupée' WHERE id=?", (nouvelle_chambre,)
-        )
-
-    # Si le client est marqué "Sorti", on libère sa chambre
-    if data.get("statut") == "Sorti" and nouvelle_chambre:
-        cur.execute(
-            "UPDATE chambres SET etat='Libre' WHERE id=?", (nouvelle_chambre,)
-        )
-
     conn.commit()
     conn.close()
 
@@ -556,14 +593,124 @@ def update_client(client_id, data):
 def delete_client(client_id):
     conn = get_connection()
     cur = conn.cursor()
-    row = cur.execute(
-        "SELECT chambre_id FROM clients WHERE id=?", (client_id,)
-    ).fetchone()
+    # Free any rooms from active sejours before deleting
+    cur.execute(
+        "UPDATE chambres SET etat='Libre' WHERE id IN "
+        "(SELECT chambre_id FROM sejours WHERE client_id=? AND statut='En cours')",
+        (client_id,),
+    )
     cur.execute("DELETE FROM clients WHERE id=?", (client_id,))
-    if row and row["chambre_id"]:
-        cur.execute(
-            "UPDATE chambres SET etat='Libre' WHERE id=?", (row["chambre_id"],)
-        )
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Séjours
+# ---------------------------------------------------------------------------
+def add_sejour(client_id, chambre_id, date_entree):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO sejours (client_id, chambre_id, date_entree, statut) "
+        "VALUES (?, ?, ?, 'En cours')",
+        (client_id, chambre_id, date_entree),
+    )
+    sejour_id = cur.lastrowid
+    cur.execute("UPDATE chambres SET etat='Occupée' WHERE id=?", (chambre_id,))
+    conn.commit()
+    conn.close()
+    return sejour_id
+
+
+def get_sejour(sejour_id):
+    conn = get_connection()
+    row = conn.execute(
+        """
+        SELECT s.*, c.nom, c.prenom, c.numero_identifiant,
+               ch.numero AS chambre_numero, ch.prix AS chambre_prix
+        FROM sejours s
+        LEFT JOIN clients c ON c.id = s.client_id
+        LEFT JOIN chambres ch ON ch.id = s.chambre_id
+        WHERE s.id = ?
+        """,
+        (sejour_id,),
+    ).fetchone()
+    conn.close()
+    return row
+
+
+def get_sejours_client(client_id):
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT s.*, ch.numero AS chambre_numero, ch.prix AS chambre_prix
+        FROM sejours s
+        LEFT JOIN chambres ch ON ch.id = s.chambre_id
+        WHERE s.client_id = ?
+        ORDER BY s.date_entree DESC
+        """,
+        (client_id,),
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+def get_sejours_actifs():
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT s.*, c.nom, c.prenom, c.numero_identifiant,
+               ch.numero AS chambre_numero, ch.prix AS chambre_prix
+        FROM sejours s
+        LEFT JOIN clients c ON c.id = s.client_id
+        LEFT JOIN chambres ch ON ch.id = s.chambre_id
+        WHERE s.statut = 'En cours'
+        ORDER BY s.date_entree DESC
+        """
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+def get_sejour_actif_client(client_id):
+    conn = get_connection()
+    row = conn.execute(
+        """
+        SELECT s.*, ch.numero AS chambre_numero, ch.prix AS chambre_prix
+        FROM sejours s
+        LEFT JOIN chambres ch ON ch.id = s.chambre_id
+        WHERE s.client_id = ? AND s.statut = 'En cours'
+        ORDER BY s.date_entree DESC LIMIT 1
+        """,
+        (client_id,),
+    ).fetchone()
+    conn.close()
+    return row
+
+
+def checkout_sejour(sejour_id, date_sortie=None):
+    if not date_sortie:
+        date_sortie = date.today().strftime("%Y-%m-%d")
+    conn = get_connection()
+    cur = conn.cursor()
+    sejour = cur.execute("SELECT chambre_id FROM sejours WHERE id=?", (sejour_id,)).fetchone()
+    cur.execute(
+        "UPDATE sejours SET statut='Terminé', date_sortie=? WHERE id=?",
+        (date_sortie, sejour_id),
+    )
+    if sejour:
+        cur.execute("UPDATE chambres SET etat='Libre' WHERE id=?", (sejour["chambre_id"],))
+    conn.commit()
+    conn.close()
+
+
+def delete_sejour(sejour_id):
+    conn = get_connection()
+    cur = conn.cursor()
+    sejour = cur.execute("SELECT chambre_id FROM sejours WHERE id=?", (sejour_id,)).fetchone()
+    cur.execute("DELETE FROM sejours WHERE id=?", (sejour_id,))
+    if sejour:
+        cur.execute("UPDATE chambres SET etat='Libre' WHERE id=?", (sejour["chambre_id"],))
     conn.commit()
     conn.close()
 
@@ -583,7 +730,7 @@ def get_next_numero_facture():
 
 def create_facture(client_id, date_facture, date_entree, date_sortie,
                     nb_nuits, lignes, remise=0.0, mode_paiement="Espèces",
-                    nom_client=""):
+                    nom_client="", sejour_id=None):
     """
     lignes: liste de tuples (description, quantite, prix_unitaire)
     Retourne (facture_id, numero, montant_total)
@@ -604,11 +751,11 @@ def create_facture(client_id, date_facture, date_entree, date_sortie,
         """
         INSERT INTO factures (numero, client_id, nom_client, date_facture,
                                date_entree, date_sortie, nb_nuits, montant_total,
-                               remise, mode_paiement)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               remise, mode_paiement, sejour_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (numero, client_id, nom_client, date_facture, date_entree, date_sortie,
-         nb_nuits, montant_total, remise, mode_paiement),
+         nb_nuits, montant_total, remise, mode_paiement, sejour_id),
     )
     facture_id = cur.lastrowid
 
@@ -642,10 +789,11 @@ def get_facture(facture_id):
     facture = conn.execute(
         """
         SELECT f.*, c.nom, c.prenom, c.numero_identifiant, c.type_identifiant,
-               c.adresse, ch.numero AS chambre_numero
+               c.adresse, ch.numero AS chambre_numero, ch.prix AS chambre_prix
         FROM factures f
         LEFT JOIN clients c ON c.id = f.client_id
-        LEFT JOIN chambres ch ON ch.id = c.chambre_id
+        LEFT JOIN sejours s ON s.id = f.sejour_id
+        LEFT JOIN chambres ch ON ch.id = s.chambre_id
         WHERE f.id = ?
         """,
         (facture_id,),
@@ -861,9 +1009,11 @@ def get_reservations(statut=None):
     if statut:
         rows = conn.execute(
             """
-            SELECT r.*, ch.numero AS chambre_numero, ch.prix AS chambre_prix
+            SELECT r.*, ch.numero AS chambre_numero, ch.prix AS chambre_prix,
+                   c.nom AS client_nom, c.prenom AS client_prenom
             FROM reservations r
             LEFT JOIN chambres ch ON ch.id = r.chambre_id
+            LEFT JOIN clients c ON c.id = r.client_id
             WHERE r.statut = ?
             ORDER BY r.date_arrivee ASC
             """, (statut,)
@@ -871,9 +1021,11 @@ def get_reservations(statut=None):
     else:
         rows = conn.execute(
             """
-            SELECT r.*, ch.numero AS chambre_numero, ch.prix AS chambre_prix
+            SELECT r.*, ch.numero AS chambre_numero, ch.prix AS chambre_prix,
+                   c.nom AS client_nom, c.prenom AS client_prenom
             FROM reservations r
             LEFT JOIN chambres ch ON ch.id = r.chambre_id
+            LEFT JOIN clients c ON c.id = r.client_id
             ORDER BY r.date_arrivee ASC
             """
         ).fetchall()
@@ -885,9 +1037,11 @@ def get_reservation(reservation_id):
     conn = get_connection()
     row = conn.execute(
         """
-        SELECT r.*, ch.numero AS chambre_numero, ch.prix AS chambre_prix
+        SELECT r.*, ch.numero AS chambre_numero, ch.prix AS chambre_prix,
+               c.nom AS client_nom, c.prenom AS client_prenom
         FROM reservations r
         LEFT JOIN chambres ch ON ch.id = r.chambre_id
+        LEFT JOIN clients c ON c.id = r.client_id
         WHERE r.id = ?
         """, (reservation_id,)
     ).fetchone()
@@ -902,14 +1056,16 @@ def add_reservation(data):
         """
         INSERT INTO reservations (
             nom, prenom, telephone, type_identifiant, numero_identifiant,
-            chambre_id, date_arrivee, date_depart, nb_personnes, notes, statut
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            chambre_id, date_arrivee, date_depart, nb_personnes, notes, statut,
+            client_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             data["nom"], data["prenom"], data["telephone"],
             data["type_identifiant"], data["numero_identifiant"],
             data["chambre_id"], data["date_arrivee"], data["date_depart"],
             data["nb_personnes"], data["notes"], data.get("statut", "RESERVE"),
+            data.get("client_id"),
         )
     )
     if data.get("chambre_id"):
@@ -936,7 +1092,7 @@ def update_reservation(reservation_id, data):
         UPDATE reservations SET
             nom=?, prenom=?, telephone=?, type_identifiant=?,
             numero_identifiant=?, chambre_id=?, date_arrivee=?,
-            date_depart=?, nb_personnes=?, notes=?, statut=?
+            date_depart=?, nb_personnes=?, notes=?, statut=?, client_id=?
         WHERE id=?
         """,
         (
@@ -944,6 +1100,7 @@ def update_reservation(reservation_id, data):
             data["type_identifiant"], data["numero_identifiant"],
             data["chambre_id"], data["date_arrivee"], data["date_depart"],
             data["nb_personnes"], data["notes"], data.get("statut", "RESERVE"),
+            data.get("client_id"),
             reservation_id,
         )
     )
