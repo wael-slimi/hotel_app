@@ -85,6 +85,54 @@ class ClientsTab(tk.Frame):
         self._add_field(form_grid, r, "Venant de", "venant_de"); r += 1
         self._add_field(form_grid, r, "Allant à", "allant_a"); r += 1
 
+        # ── Section: Chambre ────────────────────────────────────────
+        self._section_header(form_grid, "Chambre", r); r += 1
+
+        tk.Label(form_grid, text="Assigner une chambre", bg=CARD_BG,
+                 fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
+            row=r, column=0, sticky="w", padx=18, pady=3)
+        self.chambre_var = tk.StringVar(value="— Aucune —")
+        self.chambre_map = {"— Aucune —": None}
+        self.chambre_combo = ttk.Combobox(
+            form_grid, textvariable=self.chambre_var,
+            values=["— Aucune —"], width=28, state="readonly")
+        self.chambre_combo.grid(row=r, column=1, sticky="w", padx=4, pady=3)
+        self._refresh_chambre_combo()
+        r += 1
+
+        self.cin_hint = tk.Label(form_grid, text="", bg=CARD_BG,
+                                 fg=TEXT_SECONDARY, font=("Segoe UI", 9, "italic"))
+        self.cin_hint.grid(row=r, column=0, columnspan=2, sticky="w",
+                           padx=18, pady=2)
+        r += 1
+
+        # CIN auto-fill trace
+        def _on_cin_change(*_args):
+            if self.selected_client_id:
+                return
+            cin = self.vars["numero_identifiant"].get().strip()
+            if len(cin) < 3:
+                self.cin_hint.config(text="", fg=TEXT_SECONDARY)
+                return
+            existing = db.get_client_by_identifiant(cin)
+            if existing:
+                self.vars["nom"].set(existing["nom"])
+                self.vars["prenom"].set(existing["prenom"])
+                self.vars["type_identifiant"].set(existing["type_identifiant"])
+                self.vars["lieu_naissance"].set(existing["lieu_naissance"] or "")
+                self.vars["adresse"].set(existing["adresse"] or "")
+                self.vars["telephone"].set(existing["telephone"] or "")
+                if existing["date_naissance"]:
+                    self.date_naissance.set(
+                        iso_to_date_str(existing["date_naissance"]))
+                self.cin_hint.config(
+                    text=f"Client existant trouvé: {existing['prenom']} {existing['nom']}",
+                    fg=SUCCES)
+            else:
+                self.cin_hint.config(text="Nouveau client", fg=TEXT_SECONDARY)
+
+        self.vars["numero_identifiant"].trace_add("write", _on_cin_change)
+
         # ── Section: Séjours ────────────────────────────────────────
         self._section_header(form_grid, "Séjours du client", r); r += 1
 
@@ -233,6 +281,19 @@ class ClientsTab(tk.Frame):
         self.vars[key] = var
         return widget
 
+    def _refresh_chambre_combo(self):
+        self.chambre_map = {"— Aucune —": None}
+        vals = ["— Aucune —"]
+        sejours_actifs = {s["chambre_id"] for s in db.get_sejours_actifs()}
+        for ch in db.get_chambres():
+            if ch["etat"] == "Libre" and ch["id"] not in sejours_actifs:
+                txt = f"{ch['numero']} - {ch['type']} ({ch['prix']} TND)"
+                self.chambre_map[txt] = ch["id"]
+                vals.append(txt)
+        self.chambre_combo["values"] = vals
+        if self.chambre_var.get() not in vals:
+            self.chambre_var.set("— Aucune —")
+
     # ------------------------------------------------------------------
     def refresh(self):
         for item in self.tree.get_children():
@@ -299,6 +360,8 @@ class ClientsTab(tk.Frame):
         else:
             self.date_naissance.set("")
 
+        self.cin_hint.config(text="", fg=TEXT_SECONDARY)
+        self._refresh_chambre_combo()
         self._load_sejours(client_id)
 
     def nouveau(self):
@@ -307,6 +370,9 @@ class ClientsTab(tk.Frame):
             var.set("")
         self.vars["type_identifiant"].set(TYPES_IDENTIFIANT[0])
         self.date_naissance.set("")
+        self.chambre_var.set("— Aucune —")
+        self.cin_hint.config(text="", fg=TEXT_SECONDARY)
+        self._refresh_chambre_combo()
         for item in self.sejours_tree.get_children():
             self.sejours_tree.delete(item)
         self.refresh()
@@ -357,20 +423,38 @@ class ClientsTab(tk.Frame):
         if data is None:
             return
 
+        chambre_id = self.chambre_map.get(self.chambre_var.get())
+
         try:
             if self.selected_client_id:
                 db.update_client(self.selected_client_id, data)
+                if chambre_id:
+                    active = db.get_sejour_actif_client(self.selected_client_id)
+                    if active:
+                        messagebox.showwarning(
+                            "Attention",
+                            "Ce client a déjà un séjour actif. "
+                            "Termez-le d'abord avant d'assigner une nouvelle chambre.")
+                    else:
+                        db.add_sejour(self.selected_client_id, chambre_id,
+                                      date.today().strftime("%Y-%m-%d"))
                 messagebox.showinfo("Succès", "Client mis à jour avec succès.")
             else:
                 new_id = db.add_client(data)
                 self.selected_client_id = new_id
+                if chambre_id:
+                    db.add_sejour(new_id, chambre_id,
+                                  date.today().strftime("%Y-%m-%d"))
                 messagebox.showinfo("Succès", "Client ajouté avec succès.")
         except ValueError as e:
             messagebox.showerror("Erreur", str(e))
             return
 
+        self._refresh_chambre_combo()
         self.refresh()
         self.app.refresh_rooms_tab()
+        if self.selected_client_id:
+            self._load_sejours(self.selected_client_id)
 
     def supprimer(self):
         if not self.selected_client_id:
