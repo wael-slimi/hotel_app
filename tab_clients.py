@@ -100,6 +100,20 @@ class ClientsTab(tk.Frame):
         self._refresh_chambre_combo()
         r += 1
 
+        tk.Label(form_grid, text="Date d'entrée *", bg=CARD_BG,
+                 fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
+            row=r, column=0, sticky="w", padx=18, pady=3)
+        self.date_entree = DateEntry(form_grid, width=12)
+        self.date_entree.grid(row=r, column=1, sticky="w", padx=4, pady=3)
+        r += 1
+
+        tk.Label(form_grid, text="Date de sortie *", bg=CARD_BG,
+                 fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
+            row=r, column=0, sticky="w", padx=18, pady=3)
+        self.date_sortie = DateEntry(form_grid, width=12)
+        self.date_sortie.grid(row=r, column=1, sticky="w", padx=4, pady=3)
+        r += 1
+
         self.cin_hint = tk.Label(form_grid, text="", bg=CARD_BG,
                                  fg=TEXT_SECONDARY, font=("Segoe UI", 9, "italic"))
         self.cin_hint.grid(row=r, column=0, columnspan=2, sticky="w",
@@ -370,6 +384,8 @@ class ClientsTab(tk.Frame):
             var.set("")
         self.vars["type_identifiant"].set(TYPES_IDENTIFIANT[0])
         self.date_naissance.set("")
+        self.date_entree.set("")
+        self.date_sortie.set("")
         self.chambre_var.set("— Aucune —")
         self.cin_hint.config(text="", fg=TEXT_SECONDARY)
         self._refresh_chambre_combo()
@@ -425,6 +441,22 @@ class ClientsTab(tk.Frame):
 
         chambre_id = self.chambre_map.get(self.chambre_var.get())
 
+        d_entree = date_str_to_iso(self.date_entree.get())
+        d_sortie = date_str_to_iso(self.date_sortie.get())
+
+        if chambre_id:
+            if not d_entree or not d_sortie:
+                messagebox.showerror(
+                    "Erreur",
+                    "Les dates d'entrée et de sortie sont obligatoires "
+                    "lors de l'assignation d'une chambre.")
+                return
+            if d_sortie < d_entree:
+                messagebox.showerror(
+                    "Erreur",
+                    "La date de sortie doit être après ou égale à la date d'entrée.")
+                return
+
         try:
             if self.selected_client_id:
                 db.update_client(self.selected_client_id, data)
@@ -436,15 +468,13 @@ class ClientsTab(tk.Frame):
                             "Ce client a déjà un séjour actif. "
                             "Termez-le d'abord avant d'assigner une nouvelle chambre.")
                     else:
-                        db.add_sejour(self.selected_client_id, chambre_id,
-                                      date.today().strftime("%Y-%m-%d"))
+                        db.add_sejour(self.selected_client_id, chambre_id, d_entree)
                 messagebox.showinfo("Succès", "Client mis à jour avec succès.")
             else:
                 new_id = db.add_client(data)
                 self.selected_client_id = new_id
                 if chambre_id:
-                    db.add_sejour(new_id, chambre_id,
-                                  date.today().strftime("%Y-%m-%d"))
+                    db.add_sejour(new_id, chambre_id, d_entree)
                 messagebox.showinfo("Succès", "Client ajouté avec succès.")
         except ValueError as e:
             messagebox.showerror("Erreur", str(e))
