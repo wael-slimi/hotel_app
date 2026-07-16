@@ -705,6 +705,26 @@ def checkout_sejour(sejour_id, date_sortie=None):
     conn.close()
 
 
+def auto_checkout_expired():
+    """Terminate sejours whose date_sortie has passed and free their rooms."""
+    today = date.today().strftime("%Y-%m-%d")
+    conn = get_connection()
+    cur = conn.cursor()
+    expired = cur.execute(
+        "SELECT id, chambre_id FROM sejours "
+        "WHERE statut='En cours' AND date_sortie != '' AND date_sortie <= ?",
+        (today,),
+    ).fetchall()
+    for s in expired:
+        cur.execute(
+            "UPDATE sejours SET statut='Terminé' WHERE id=?", (s["id"],))
+        cur.execute(
+            "UPDATE chambres SET etat='Libre' WHERE id=?", (s["chambre_id"],))
+    conn.commit()
+    conn.close()
+    return len(expired)
+
+
 def delete_sejour(sejour_id):
     conn = get_connection()
     cur = conn.cursor()
