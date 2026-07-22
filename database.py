@@ -725,6 +725,33 @@ def auto_checkout_expired():
     return len(expired)
 
 
+def auto_cancel_expired_reservations():
+    """Auto-cancel RESERVE reservations where date_arrivee has passed."""
+    today = date.today().strftime("%Y-%m-%d")
+    conn = get_connection()
+    cur = conn.cursor()
+    expired = cur.execute(
+        "SELECT id, chambre_id FROM reservations "
+        "WHERE statut='RESERVE' AND date_arrivee != '' AND date_arrivee < ?",
+        (today,),
+    ).fetchall()
+    for r in expired:
+        cur.execute(
+            "UPDATE reservations SET statut='EXPIRE' WHERE id=?", (r["id"],))
+        if r["chambre_id"]:
+            has_active = cur.execute(
+                "SELECT 1 FROM sejours WHERE chambre_id=? AND statut='En cours' LIMIT 1",
+                (r["chambre_id"],),
+            ).fetchone()
+            if not has_active:
+                cur.execute(
+                    "UPDATE chambres SET etat='Libre' WHERE id=?",
+                    (r["chambre_id"],))
+    conn.commit()
+    conn.close()
+    return len(expired)
+
+
 def delete_sejour(sejour_id):
     conn = get_connection()
     cur = conn.cursor()

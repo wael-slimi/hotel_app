@@ -13,7 +13,7 @@ import sys
 import tkinter as tk
 from tkinter import ttk, messagebox
 
-from database import init_db, auto_checkout_expired
+from database import init_db, auto_checkout_expired, auto_cancel_expired_reservations
 from tab_chambres import RoomsTab
 from tab_clients import ClientsTab
 from tab_facturation import FacturationTab
@@ -107,6 +107,7 @@ def main():
     try:
         init_db()
         auto_checkout_expired()
+        auto_cancel_expired_reservations()
     except Exception as exc:
         # Affiche une fenêtre d'erreur même si le reste de l'UI ne se charge pas
         root = tk.Tk()

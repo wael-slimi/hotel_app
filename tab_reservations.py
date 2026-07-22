@@ -22,11 +22,12 @@ DANGER       = "#EF4444"
 DANGER_HVR   = "#DC2626"
 NEUTRE_CLAIR = "#F8FAFC"
 
-STATUTS_RESERVATION = ["RESERVE", "ANNULE"]
+STATUTS_RESERVATION = ["RESERVE", "ANNULE", "EXPIRE"]
 
 BADGE_COLORS = {
     "RESERVE": {"bg": "#EEF2FF", "fg": PRIMAIRE, "label": "Réservé"},
     "ANNULE":  {"bg": "#FEF2F2", "fg": DANGER,  "label": "Annulé"},
+    "EXPIRE":  {"bg": "#F3F4F6", "fg": "#6B7280", "label": "Expirée"},
 }
 
 
