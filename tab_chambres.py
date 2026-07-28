@@ -403,8 +403,12 @@ class RoomsTab(tk.Frame):
         # Load photos
         photos_rows = get_chambre_photos(chambre["id"])
         paths = [r["photo_path"] for r in photos_rows]
-        if not paths and chambre.get("photo"):
-            paths = [chambre["photo"]]
+        try:
+            photo = chambre["photo"]
+        except (IndexError, KeyError):
+            photo = None
+        if not paths and photo:
+            paths = [photo]
         tile.photo_paths = paths
         tile.photo_index = 0
 
