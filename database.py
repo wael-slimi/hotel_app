@@ -136,6 +136,16 @@ def init_db():
     except Exception:
         pass
     try:
+        cur.execute("ALTER TABLE factures ADD COLUMN montant_ht REAL DEFAULT 0")
+        conn.commit()
+    except Exception:
+        pass
+    try:
+        cur.execute("ALTER TABLE factures ADD COLUMN tva REAL DEFAULT 0")
+        conn.commit()
+    except Exception:
+        pass
+    try:
         cur.execute("ALTER TABLE clients ADD COLUMN solde REAL DEFAULT 0")
         conn.commit()
     except Exception:
@@ -344,6 +354,25 @@ def init_db():
             "VALUES (?, ?, ?, ?, ?, ?)",
             chambres_defaut,
         )
+        conn.commit()
+
+    # Migration: populate montant_ht and tva for existing factures
+    rows = conn.execute(
+        "SELECT id, montant_total, remise FROM factures WHERE montant_ht=0 AND montant_total>0"
+    ).fetchall()
+    for r in rows:
+        total = float(r["montant_total"])
+        remise = float(r["remise"] or 0)
+        ht = round(total - remise * 100 / 107, 3)
+        tva_val = round(total - ht, 3)
+        if ht < 0:
+            ht = 0.0
+            tva_val = 0.0
+        conn.execute(
+            "UPDATE factures SET montant_ht=?, tva=? WHERE id=?",
+            (ht, tva_val, r["id"])
+        )
+    if rows:
         conn.commit()
 
     conn.close()
@@ -792,14 +821,19 @@ def create_facture(client_id, date_facture, date_entree, date_sortie,
     """
     lignes: liste de tuples (description, quantite, prix_unitaire)
     Retourne (facture_id, numero, montant_total)
+    TVA = 7% appliquée après remise: TTC = (sous_total - remise) * 1.07
     """
-    montant_total = 0.0
+    sous_total = 0.0
     lignes_calc = []
     for description, quantite, prix_unitaire in lignes:
         montant = round(float(quantite) * float(prix_unitaire), 3)
-        montant_total += montant
+        sous_total += montant
         lignes_calc.append((description, quantite, prix_unitaire, montant))
-    montant_total = round(montant_total - float(remise or 0), 3)
+    montant_ht = round(sous_total - float(remise or 0), 3)
+    if montant_ht < 0:
+        montant_ht = 0.0
+    tva = round(montant_ht * 0.07, 3)
+    montant_total = round(montant_ht + tva, 3)
 
     numero = get_next_numero_facture()
 
@@ -809,11 +843,12 @@ def create_facture(client_id, date_facture, date_entree, date_sortie,
         """
         INSERT INTO factures (numero, client_id, nom_client, date_facture,
                                date_entree, date_sortie, nb_nuits, montant_total,
-                               remise, mode_paiement, sejour_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               remise, mode_paiement, sejour_id, montant_ht, tva)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (numero, client_id, nom_client, date_facture, date_entree, date_sortie,
-         nb_nuits, montant_total, remise, mode_paiement, sejour_id),
+         nb_nuits, montant_total, remise, mode_paiement, sejour_id,
+         montant_ht, tva),
     )
     facture_id = cur.lastrowid
 

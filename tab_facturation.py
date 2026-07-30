@@ -252,8 +252,13 @@ class FacturationTab(tk.Frame):
         total_card = tk.Frame(c3_inner, bg=PRIMAIRE, bd=0)
         total_card.grid(row=1, column=0, columnspan=2, sticky="w",
                         padx=(0, 12), pady=6, ipadx=16, ipady=8)
-        tk.Label(total_card, text="TOTAL", bg=PRIMAIRE, fg="#C7D2FE",
+        tk.Label(total_card, text="TVA (7%)", bg=PRIMAIRE, fg="#C7D2FE",
                  font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=4, pady=(4, 0))
+        self.tva_var = tk.StringVar(value="0.000 TND")
+        tk.Label(total_card, textvariable=self.tva_var, bg=PRIMAIRE, fg="#E0E7FF",
+                 font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=4)
+        tk.Label(total_card, text="TOTAL TTC", bg=PRIMAIRE, fg="white",
+                 font=("Segoe UI", 14, "bold")).pack(anchor="w", padx=4, pady=(2, 0))
         self.total_var = tk.StringVar(value="0.000 TND")
         tk.Label(total_card, textvariable=self.total_var, bg=PRIMAIRE, fg="white",
                  font=("Segoe UI", 16, "bold")).pack(anchor="w", padx=4, pady=(0, 4))
@@ -554,9 +559,12 @@ class FacturationTab(tk.Frame):
             remise = float(self.remise_var.get().replace(",", "."))
         except ValueError:
             remise = 0.0
-        total = round(sous_total - remise, 3)
-        if total < 0:
-            total = 0.0
+        montant_ht = round(sous_total - remise, 3)
+        if montant_ht < 0:
+            montant_ht = 0.0
+        tva = round(montant_ht * 0.07, 3)
+        total = round(montant_ht + tva, 3)
+        self.tva_var.set(f"{tva:.3f} TND")
         self.total_var.set(f"{total:.3f} TND")
         if total > 0:
             self.lettres_var.set(
@@ -757,12 +765,12 @@ class FacturationTab(tk.Frame):
         table_card.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
 
         hist_columns = ("id", "numero", "date", "client", "identifiant",
-                        "total", "solde_due", "statut")
+                        "ht", "tva", "total", "solde_due", "statut")
         headers_h = {
             "id": "ID", "numero": "N° FACTURE", "date": "DATE",
             "client": "CLIENT", "identifiant": "N° IDENTIFIANT",
-            "total": "MONTANT (TND)", "solde_due": "SOLDE DÛ (TND)",
-            "statut": "STATUT",
+            "ht": "HT (TND)", "tva": "TVA (TND)", "total": "TTC (TND)",
+            "solde_due": "SOLDE DÛ (TND)", "statut": "STATUT",
         }
         hist_tree = ttk.Treeview(table_card, columns=hist_columns,
                                  show="headings", height=18)
@@ -883,6 +891,8 @@ class FacturationTab(tk.Frame):
 
                 est_paye = bool(f["payee"]) if "payee" in f.keys() else False
                 montant_paye = float(f["montant_paye"] or 0) if "montant_paye" in f.keys() else 0
+                montant_ht = float(f["montant_ht"] or 0) if "montant_ht" in f.keys() else 0
+                tva_val = float(f["tva"] or 0) if "tva" in f.keys() else 0
 
                 if est_paye:
                     statut_txt = "Payée"
@@ -904,6 +914,7 @@ class FacturationTab(tk.Frame):
                     f["id"], f["numero"],
                     iso_to_date_str(f["date_facture"]) or f["date_facture"],
                     client_nom, identifiant,
+                    f"{montant_ht:.3f}", f"{tva_val:.3f}",
                     f"{f['montant_total']:.3f}",
                     solde_txt, statut_txt,
                 ))
