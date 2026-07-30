@@ -148,6 +148,24 @@ class ClientsTab(tk.Frame):
 
         self.vars["numero_identifiant"].trace_add("write", _on_cin_change)
 
+        # ── Section: Compagnon ──────────────────────────────────────
+        self._section_header(form_grid, "Compagnon (même chambre)", r); r += 1
+
+        self._add_field(form_grid, r, "Nom compagnon", "comp_nom"); r += 1
+        self._add_field(form_grid, r, "Prénom compagnon", "comp_prenom"); r += 1
+
+        tk.Label(form_grid, text="Type identifiant", bg=CARD_BG,
+                 fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
+            row=r, column=0, sticky="w", padx=18, pady=3)
+        self.vars["comp_type_identifiant"] = tk.StringVar(value=TYPES_IDENTIFIANT[0])
+        ttk.Combobox(form_grid, textvariable=self.vars["comp_type_identifiant"],
+                     values=TYPES_IDENTIFIANT, width=21,
+                     state="readonly").grid(row=r, column=1, sticky="w", padx=4, pady=3)
+        r += 1
+
+        self._add_field(form_grid, r, "N° identifiant", "comp_numero_identifiant"); r += 1
+        self._add_field(form_grid, r, "Téléphone", "comp_telephone"); r += 1
+
         # ── Section: Séjours ────────────────────────────────────────
         self._section_header(form_grid, "Séjours du client", r); r += 1
 
@@ -215,6 +233,11 @@ class ClientsTab(tk.Frame):
                   font=("Segoe UI", 9), bd=1, relief="solid",
                   activebackground=NEUTRE_CLAIR, cursor="hand2",
                   width=10, command=self.imprimer_fiche_police).pack(
+            side="left", padx=3)
+        tk.Button(btn_frame2, text="Ajouter Compagnon", bg=SUCCES, fg="white",
+                  font=("Segoe UI", 9, "bold"), bd=0,
+                  activebackground="#059669", activeforeground="white",
+                  cursor="hand2", width=14, command=self.ajouter_compagnon).pack(
             side="left", padx=3)
 
         # ── Right panel: table card ──────────────────────────────────
@@ -486,6 +509,35 @@ class ClientsTab(tk.Frame):
             messagebox.showerror("Erreur", str(e))
             return
 
+        # Create companion if fields are filled
+        comp_nom = self.vars["comp_nom"].get().strip()
+        comp_prenom = self.vars["comp_prenom"].get().strip()
+        comp_cin = self.vars["comp_numero_identifiant"].get().strip()
+        if comp_nom and comp_prenom and comp_cin and chambre_id:
+            existing = db.get_client_by_identifiant(comp_cin)
+            if existing:
+                comp_id = existing["id"]
+            else:
+                comp_data = {
+                    "nom": comp_nom,
+                    "prenom": comp_prenom,
+                    "type_identifiant": self.vars["comp_type_identifiant"].get(),
+                    "numero_identifiant": comp_cin,
+                    "date_naissance": "",
+                    "lieu_naissance": "",
+                    "adresse": "",
+                    "telephone": self.vars["comp_telephone"].get().strip(),
+                    "venant_de": "",
+                    "allant_a": "",
+                }
+                comp_id = db.add_client(comp_data)
+            active_comp = db.get_sejour_actif_client(comp_id)
+            if not active_comp:
+                db.add_sejour(comp_id, chambre_id, d_entree)
+                messagebox.showinfo(
+                    "Compagnon",
+                    f"Compagnon {comp_prenom} {comp_nom} ajouté dans la chambre.")
+
         self._refresh_chambre_combo()
         self.refresh()
         self.app.refresh_rooms_tab()
@@ -522,9 +574,9 @@ class ClientsTab(tk.Frame):
         chambre = db.get_chambre(sejour["chambre_id"])
         today = date.today().strftime("%Y-%m-%d")
         early = sejour["date_sortie"] and today < sejour["date_sortie"]
+        nb_nuits = max((date.fromisoformat(today) - date.fromisoformat(sejour["date_entree"])).days, 1)
 
         if early:
-            nb_nuits = max((date.fromisoformat(today) - date.fromisoformat(sejour["date_entree"])).days, 1)
             nb_prevues = max((date.fromisoformat(sejour["date_sortie"]) - date.fromisoformat(sejour["date_entree"])).days, 1)
             msg = (f"Départ anticipé ?\n\n"
                    f"Le séjour prévoit une sortie le "
@@ -543,48 +595,47 @@ class ClientsTab(tk.Frame):
         self._load_sejours(self.selected_client_id)
         self.app.refresh_rooms_tab()
 
-        if early:
-            prix = float(chambre["prix"]) if chambre else 0.0
-            lignes = [(f"Nuit chambre {chambre['numero']}", nb_nuits, prix)]
-            nom_client = f"{client['prenom']} {client['nom']}".strip()
-            fid, numero, total = db.create_facture(
-                client_id=client["id"],
-                date_facture=today,
-                date_entree=sejour["date_entree"],
-                date_sortie=today,
-                nb_nuits=nb_nuits,
-                lignes=lignes,
-                mode_paiement="Espèces",
-                nom_client=nom_client,
-                sejour_id=sejour["id"],
-                type_identifiant=client.get("type_identifiant", ""),
-                numero_identifiant=client.get("numero_identifiant", ""),
-                adresse=client.get("adresse", ""),
-                chambre_numero=chambre["numero"] if chambre else "",
-            )
-            if messagebox.askyesno(
-                    "Facture générée",
-                    f"Facture {numero} créée.\n"
-                    f"Nuits : {nb_nuits} × {prix:.3f} = {total:.3f} TND\n"
-                    f"TVA 7% incluse.\n\n"
-                    f"Générer le PDF ?"):
-                try:
-                    from pdf_facture import generer_facture_pdf
-                    nom_fichier_defaut = f"Facture_{numero}.pdf"
-                    chemin = filedialog.asksaveasfilename(
-                        title="Enregistrer la facture",
-                        defaultextension=".pdf",
-                        initialfile=nom_fichier_defaut,
-                        filetypes=[("Fichier PDF", "*.pdf")],
-                    )
-                    if chemin:
-                        generer_facture_pdf(fid, chemin)
-                        messagebox.showinfo("PDF", f"Facture enregistrée :\n{chemin}")
-                except Exception as e:
-                    messagebox.showerror("Erreur PDF", str(e))
-            self.app.refresh_stats_tab()
-        else:
-            messagebox.showinfo("Succès", "Le client est marqué comme sorti et la chambre est libérée.")
+        prix = float(chambre["prix"]) if chambre else 0.0
+        lignes = [(f"Nuit chambre {chambre['numero']}", nb_nuits, prix)]
+        nom_client = f"{client['prenom']} {client['nom']}".strip()
+        fid, numero, total = db.create_facture(
+            client_id=client["id"],
+            date_facture=today,
+            date_entree=sejour["date_entree"],
+            date_sortie=today,
+            nb_nuits=nb_nuits,
+            lignes=lignes,
+            mode_paiement="Espèces",
+            nom_client=nom_client,
+            sejour_id=sejour["id"],
+            type_identifiant=client.get("type_identifiant", ""),
+            numero_identifiant=client.get("numero_identifiant", ""),
+            adresse=client.get("adresse", ""),
+            chambre_numero=chambre["numero"] if chambre else "",
+            venant_de=client.get("venant_de", ""),
+            allant_a=client.get("allant_a", ""),
+        )
+        if messagebox.askyesno(
+                "Facture générée",
+                f"Facture {numero} créée.\n"
+                f"Nuits : {nb_nuits} × {prix:.3f} = {total:.3f} TND\n"
+                f"TVA 7% incluse.\n\n"
+                f"Générer le PDF ?"):
+            try:
+                from pdf_facture import generer_facture_pdf
+                nom_fichier_defaut = f"Facture_{numero}.pdf"
+                chemin = filedialog.asksaveasfilename(
+                    title="Enregistrer la facture",
+                    defaultextension=".pdf",
+                    initialfile=nom_fichier_defaut,
+                    filetypes=[("Fichier PDF", "*.pdf")],
+                )
+                if chemin:
+                    generer_facture_pdf(fid, chemin)
+                    messagebox.showinfo("PDF", f"Facture enregistrée :\n{chemin}")
+            except Exception as e:
+                messagebox.showerror("Erreur PDF", str(e))
+        self.app.refresh_stats_tab()
 
     def imprimer_fiche_police(self):
         if not self.selected_client_id:
@@ -606,3 +657,86 @@ class ClientsTab(tk.Frame):
             messagebox.showinfo("Succès", f"Fiche Police générée :\n{chemin}")
         except Exception as e:
             messagebox.showerror("Erreur PDF", f"Impossible de générer la fiche :\n{e}")
+
+    def ajouter_compagnon(self):
+        if not self.selected_client_id:
+            messagebox.showwarning("Attention", "Veuillez sélectionner un client.")
+            return
+        sejour = db.get_sejour_actif_client(self.selected_client_id)
+        if not sejour:
+            messagebox.showwarning("Attention", "Ce client n'a pas de séjour actif.")
+            return
+
+        win = tk.Toplevel(self)
+        win.title("Ajouter un compagnon")
+        win.resizable(False, False)
+        win.transient(self)
+        win.wait_visibility()
+        win.grab_set()
+        win.configure(bg=CARD_BG)
+
+        tk.Label(win, text=f"Ajouter un compagnon dans la chambre {sejour['chambre_numero']}",
+                 bg=CARD_BG, fg=TEXT_PRIMARY,
+                 font=("Segoe UI", 11, "bold")).pack(pady=(14, 8), padx=16)
+
+        form = tk.Frame(win, bg=CARD_BG)
+        form.pack(padx=16, pady=8)
+
+        def _row(label, row):
+            tk.Label(form, text=label, bg=CARD_BG, fg=TEXT_PRIMARY,
+                     font=("Segoe UI", 9)).grid(row=row, column=0, sticky="w", padx=6, pady=4)
+            var = tk.StringVar()
+            tk.Entry(form, textvariable=var, width=25, font=("Segoe UI", 9),
+                     bd=1, relief="solid",
+                     highlightbackground=CARD_BORDER).grid(row=row, column=1, sticky="w", padx=4, pady=4)
+            return var
+
+        nom_var = _row("Nom *", 0)
+        prenom_var = _row("Prénom *", 1)
+
+        tk.Label(form, text="Type identifiant", bg=CARD_BG, fg=TEXT_PRIMARY,
+                 font=("Segoe UI", 9)).grid(row=2, column=0, sticky="w", padx=6, pady=4)
+        type_id_var = tk.StringVar(value=TYPES_IDENTIFIANT[0])
+        ttk.Combobox(form, textvariable=type_id_var, values=TYPES_IDENTIFIANT,
+                     width=22, state="readonly").grid(row=2, column=1, sticky="w", padx=4, pady=4)
+
+        cin_var = _row("N° identifiant *", 3)
+        tel_var = _row("Téléphone", 4)
+
+        def _save():
+            c_nom = nom_var.get().strip()
+            c_prenom = prenom_var.get().strip()
+            c_cin = cin_var.get().strip()
+            if not c_nom or not c_prenom or not c_cin:
+                messagebox.showerror("Erreur", "Nom, prénom et N° identifiant sont obligatoires.", parent=win)
+                return
+            existing = db.get_client_by_identifiant(c_cin)
+            if existing:
+                comp_id = existing["id"]
+            else:
+                comp_id = db.add_client({
+                    "nom": c_nom, "prenom": c_prenom,
+                    "type_identifiant": type_id_var.get(),
+                    "numero_identifiant": c_cin,
+                    "date_naissance": "", "lieu_naissance": "",
+                    "adresse": "", "telephone": tel_var.get().strip(),
+                    "venant_de": "", "allant_a": "",
+                })
+            active = db.get_sejour_actif_client(comp_id)
+            if active:
+                messagebox.showwarning("Attention", f"{c_prenom} {c_nom} a déjà un séjour actif.", parent=win)
+                return
+            db.add_sejour(comp_id, sejour["chambre_id"], sejour["date_entree"])
+            messagebox.showinfo("Succès", f"{c_prenom} {c_nom} ajouté dans la chambre {sejour['chambre_numero']}.", parent=win)
+            win.destroy()
+            self.refresh()
+            self.app.refresh_rooms_tab()
+
+        btn_frame = tk.Frame(win, bg=CARD_BG)
+        btn_frame.pack(pady=12)
+        tk.Button(btn_frame, text="Ajouter", bg=SUCCES, fg="white",
+                  font=("Segoe UI", 9, "bold"), bd=0, cursor="hand2",
+                  width=12, command=_save).pack(side="left", padx=6)
+        tk.Button(btn_frame, text="Annuler", bg=CARD_BG, fg=TEXT_PRIMARY,
+                  font=("Segoe UI", 9), bd=1, relief="solid", cursor="hand2",
+                  width=12, command=win.destroy).pack(side="left", padx=6)

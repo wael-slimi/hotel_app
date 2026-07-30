@@ -328,6 +328,8 @@ class FacturationTab(tk.Frame):
                 "chambre_prix": s["chambre_prix"],
                 "date_entree": s["date_entree"], "date_sortie": s["date_sortie"],
                 "sejour_id": s["id"],
+                "venant_de": s["venant_de"],
+                "allant_a": s["allant_a"],
                 "is_reservation": False,
             }
             valeurs.append(texte)
@@ -657,6 +659,8 @@ class FacturationTab(tk.Frame):
             numero_identifiant=client.get("numero_identifiant", ""),
             adresse=client.get("adresse", ""),
             chambre_numero=client.get("chambre_numero", ""),
+            venant_de=client.get("venant_de", ""),
+            allant_a=client.get("allant_a", ""),
         )
 
         self.derniere_facture_id = facture_id
@@ -1214,6 +1218,8 @@ class FacturationTab(tk.Frame):
                 numero_identifiant=client.get("numero_identifiant", ""),
                 adresse=client.get("adresse", ""),
                 chambre_numero=client.get("chambre_numero", ""),
+                venant_de=client.get("venant_de", ""),
+                allant_a=client.get("allant_a", ""),
             )
             self.facture_id_map[texte] = facture_id
 

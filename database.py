@@ -180,6 +180,16 @@ def init_db():
         conn.commit()
     except Exception:
         pass
+    try:
+        cur.execute("ALTER TABLE factures ADD COLUMN venant_de TEXT DEFAULT ''")
+        conn.commit()
+    except Exception:
+        pass
+    try:
+        cur.execute("ALTER TABLE factures ADD COLUMN allant_a TEXT DEFAULT ''")
+        conn.commit()
+    except Exception:
+        pass
 
     cur.execute(
         """
@@ -412,6 +422,22 @@ def init_db():
             "adresse=?, chambre_numero=? WHERE id=?",
             (r["type_identifiant"] or "", r["numero_identifiant"] or "",
              r["adresse"] or "", r["chambre_numero"] or "", r["id"])
+        )
+    if rows:
+        conn.commit()
+
+    # Migration: populate venant_de/allant_a on existing factures
+    rows = conn.execute(
+        "SELECT f.id, c.venant_de, c.allant_a "
+        "FROM factures f "
+        "LEFT JOIN clients c ON c.id = f.client_id "
+        "WHERE (f.venant_de = '' OR f.venant_de IS NULL) "
+        "AND c.id IS NOT NULL"
+    ).fetchall()
+    for r in rows:
+        conn.execute(
+            "UPDATE factures SET venant_de=?, allant_a=? WHERE id=?",
+            (r["venant_de"] or "", r["allant_a"] or "", r["id"])
         )
     if rows:
         conn.commit()
@@ -735,7 +761,7 @@ def get_sejours_actifs():
     rows = conn.execute(
         """
         SELECT s.*, c.nom, c.prenom, c.numero_identifiant,
-               c.type_identifiant, c.adresse,
+               c.type_identifiant, c.adresse, c.venant_de, c.allant_a,
                ch.numero AS chambre_numero, ch.prix AS chambre_prix
         FROM sejours s
         LEFT JOIN clients c ON c.id = s.client_id
@@ -798,8 +824,12 @@ def auto_checkout_expired():
     for s in expired:
         cur.execute(
             "UPDATE sejours SET statut='Terminé' WHERE id=?", (s["id"],))
-        cur.execute(
-            "UPDATE chambres SET etat='Libre' WHERE id=?", (s["chambre_id"],))
+        other_active = cur.execute(
+            "SELECT 1 FROM sejours WHERE chambre_id=? AND statut='En cours' AND id!=? LIMIT 1",
+            (s["chambre_id"], s["id"])
+        ).fetchone()
+        if not other_active:
+            cur.execute("UPDATE chambres SET etat='Libre' WHERE id=?", (s["chambre_id"],))
     conn.commit()
     conn.close()
     return len(expired)
@@ -860,7 +890,8 @@ def create_facture(client_id, date_facture, date_entree, date_sortie,
                     nb_nuits, lignes, remise=0.0, mode_paiement="Espèces",
                     nom_client="", sejour_id=None,
                     type_identifiant="", numero_identifiant="",
-                    adresse="", chambre_numero=""):
+                    adresse="", chambre_numero="",
+                    venant_de="", allant_a=""):
     """
     lignes: liste de tuples (description, quantite, prix_unitaire)
     Retourne (facture_id, numero, montant_total)
@@ -887,13 +918,14 @@ def create_facture(client_id, date_facture, date_entree, date_sortie,
         INSERT INTO factures (numero, client_id, nom_client, date_facture,
                                date_entree, date_sortie, nb_nuits, montant_total,
                                remise, mode_paiement, sejour_id, montant_ht, tva,
-                               type_identifiant, numero_identifiant, adresse, chambre_numero)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               type_identifiant, numero_identifiant, adresse,
+                               chambre_numero, venant_de, allant_a)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (numero, client_id, nom_client, date_facture, date_entree, date_sortie,
          nb_nuits, montant_total, remise, mode_paiement, sejour_id,
          montant_ht, tva, type_identifiant, numero_identifiant, adresse,
-         chambre_numero),
+         chambre_numero, venant_de, allant_a),
     )
     facture_id = cur.lastrowid
 

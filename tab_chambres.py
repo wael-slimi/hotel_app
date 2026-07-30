@@ -545,24 +545,26 @@ class RoomsTab(tk.Frame):
                             row=r, column=0, columnspan=2, sticky="ew", pady=4); r += 1
                 r_checkout = r
                 for i, sejour in enumerate(guests):
-                    def _make_checkout(sid=sejour["id"], snom=f"{sejour['prenom']} {sejour['nom']}"):
+                    def _make_checkout(sid=sejour["id"],
+                                       snom=f"{sejour['prenom']} {sejour['nom']}",
+                                       s_date_sortie=sejour["date_sortie"]):
                         def _do():
                             today = date.today().strftime("%Y-%m-%d")
-                            early = sejour["date_sortie"] and today < sejour["date_sortie"]
+                            early = s_date_sortie and today < s_date_sortie
                             if early:
                                 msg = (f"Départ anticipé de {snom} ?\n"
                                        f"Le séjour prévoit une sortie le "
-                                       f"{iso_to_date_str(sejour['date_sortie'])}.\n"
+                                       f"{iso_to_date_str(s_date_sortie)}.\n"
                                        f"Confirmer ?")
                             else:
                                 msg = f"Confirmer le départ de {snom} ?"
                             if messagebox.askyesno("Départ", msg):
-                                from database import checkout_sejour, get_chambre
+                                from database import checkout_sejour
                                 checkout_sejour(sid, date_sortie=today)
                                 win.destroy()
                                 self.refresh()
-                            return _do
-                    ttk.Button(frame, text=f"🚪 Départ {sejour['prenom']}",
+                        return _do
+                    ttk.Button(frame, text=f"Départ {sejour['prenom']}",
                                command=_make_checkout()).grid(
                         row=r_checkout + i, column=0, columnspan=2, pady=4)
             else:

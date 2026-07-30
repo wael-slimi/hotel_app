@@ -117,6 +117,8 @@ def generer_facture_pdf(facture_id, chemin_pdf):
         ["Identifiant :", f"{facture['type_identifiant'] or ''} "
                            f"{facture['numero_identifiant'] or ''}"],
         ["Adresse :", facture["adresse"] or ""],
+        ["Venant de :", facture["venant_de"] or ""],
+        ["Allant à :", facture["allant_a"] or ""],
         ["Chambre :", facture["chambre_numero"] or ""],
         ["Date d'arrivée :", iso_to_date_str(facture["date_entree"]) or facture["date_entree"]],
         ["Date de départ :", iso_to_date_str(facture["date_sortie"]) or facture["date_sortie"]],
