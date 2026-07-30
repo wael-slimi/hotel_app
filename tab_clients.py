@@ -518,17 +518,60 @@ class ClientsTab(tk.Frame):
             messagebox.showinfo("Information", "Ce client n'a pas de séjour actif.")
             return
 
-        if not messagebox.askyesno(
-                "Confirmation",
-                f"Confirmer la sortie de {client['prenom']} {client['nom']} "
-                f"et libérer la chambre {sejour['chambre_numero'] or ''} ?"):
+        chambre = db.get_chambre(sejour["chambre_id"])
+        today = date.today().strftime("%Y-%m-%d")
+        early = sejour["date_sortie"] and today < sejour["date_sortie"]
+
+        if early:
+            nb_nuits = max((date.fromisoformat(today) - date.fromisoformat(sejour["date_entree"])).days, 1)
+            msg = (f"Départ anticipé ?\n\n"
+                   f"Le séjour prévoit une sortie le "
+                   f"{iso_to_date_str(sejour['date_sortie'])}.\n"
+                   f"Nuits passées : {nb_nuits} / "
+                   f"{sejour['nb_nuits'] or '?'}\n\n"
+                   f"Confirmer le départ anticipé ?")
+        else:
+            msg = (f"Confirmer la sortie de {client['prenom']} {client['nom']} "
+                   f"et libérer la chambre {chambre['numero'] if chambre else ''} ?")
+
+        if not messagebox.askyesno("Confirmation", msg):
             return
 
-        db.checkout_sejour(sejour["id"])
+        db.checkout_sejour(sejour["id"], date_sortie=today)
         self.refresh()
         self._load_sejours(self.selected_client_id)
         self.app.refresh_rooms_tab()
-        messagebox.showinfo("Succès", "Le client est marqué comme sorti et la chambre est libérée.")
+
+        if early:
+            prix = float(chambre["prix"]) if chambre else 0.0
+            lignes = [(f"Nuit chambre {chambre['numero']}", nb_nuits, prix)]
+            nom_client = f"{client['prenom']} {client['nom']}".strip()
+            fid, numero, total = db.create_facture(
+                client_id=client["id"],
+                date_facture=today,
+                date_entree=sejour["date_entree"],
+                date_sortie=today,
+                nb_nuits=nb_nuits,
+                lignes=lignes,
+                mode_paiement="Espèces",
+                nom_client=nom_client,
+                sejour_id=sejour["id"],
+            )
+            if messagebox.askyesno(
+                    "Facture générée",
+                    f"Facture {numero} créée.\n"
+                    f"Nuits : {nb_nuits} × {prix:.3f} = {total:.3f} TND\n"
+                    f"TVA 7% incluse.\n\n"
+                    f"Générer le PDF ?"):
+                try:
+                    from pdf_facture import generer_facture_pdf
+                    chemin = generer_facture_pdf(fid)
+                    messagebox.showinfo("PDF", f"Facture enregistrée :\n{chemin}")
+                except Exception as e:
+                    messagebox.showerror("Erreur PDF", str(e))
+            self.app.refresh_stats_tab()
+        else:
+            messagebox.showinfo("Succès", "Le client est marqué comme sorti et la chambre est libérée.")
 
     def imprimer_fiche_police(self):
         if not self.selected_client_id:

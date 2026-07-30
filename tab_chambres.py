@@ -543,6 +543,28 @@ class RoomsTab(tk.Frame):
                     if i < len(guests) - 1:
                         ttk.Separator(frame, orient="horizontal").grid(
                             row=r, column=0, columnspan=2, sticky="ew", pady=4); r += 1
+                r_checkout = r
+                for i, sejour in enumerate(guests):
+                    def _make_checkout(sid=sejour["id"], snom=f"{sejour['prenom']} {sejour['nom']}"):
+                        def _do():
+                            today = date.today().strftime("%Y-%m-%d")
+                            early = sejour["date_sortie"] and today < sejour["date_sortie"]
+                            if early:
+                                msg = (f"Départ anticipé de {snom} ?\n"
+                                       f"Le séjour prévoit une sortie le "
+                                       f"{iso_to_date_str(sejour['date_sortie'])}.\n"
+                                       f"Confirmer ?")
+                            else:
+                                msg = f"Confirmer le départ de {snom} ?"
+                            if messagebox.askyesno("Départ", msg):
+                                from database import checkout_sejour, get_chambre
+                                checkout_sejour(sid, date_sortie=today)
+                                win.destroy()
+                                self.refresh()
+                            return _do
+                    ttk.Button(frame, text=f"🚪 Départ {sejour['prenom']}",
+                               command=_make_checkout()).grid(
+                        row=r_checkout + i, column=0, columnspan=2, pady=4)
             else:
                 ttk.Label(frame, text="Aucun séjour actif trouvé.").grid(
                     row=0, column=0, columnspan=2, pady=8)
