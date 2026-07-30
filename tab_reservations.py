@@ -346,9 +346,11 @@ class ReservationsTab(tk.Frame):
         chambre_map = {"— Aucune —": None}
         chambre_vals = ["— Aucune —"]
         for ch in chambres:
-            if (ch["etat"] in ("Libre", "Réservée") or
-                    (reservation and ch["id"] == reservation["chambre_id"])):
-                texte = f"{ch['numero']} - {ch['type']} ({ch['prix']} TND)"
+            if ch["etat"] != "Maintenance":
+                occ = db.get_sejours_actifs()
+                nb_occ = sum(1 for s in occ if s["chambre_id"] == ch["id"])
+                suffix = f" ({nb_occ} occupant(s))" if nb_occ > 0 else ""
+                texte = f"{ch['numero']} - {ch['type']} ({ch['prix']} TND){suffix}"
                 chambre_map[texte] = ch["id"]
                 chambre_vals.append(texte)
 
@@ -451,6 +453,20 @@ class ReservationsTab(tk.Frame):
                 "statut": statut_var.get(),
                 "client_id": _linked_client_id[0],
             }
+
+            chambre_id = data["chambre_id"]
+            if chambre_id:
+                overlaps = db.check_reservation_overlap(
+                    chambre_id, d_arr, d_dep,
+                    exclude_id=reservation["id"] if reservation else None)
+                if overlaps:
+                    noms = ", ".join(f"{o['prenom']} {o['nom']}" for o in overlaps)
+                    if not messagebox.askyesno(
+                            "Chambre déjà réservée",
+                            f"La chambre est déjà réservée par: {noms}\n"
+                            "Voulez-vous quand même réserver (partage de chambre) ?",
+                            parent=win):
+                        return
 
             if reservation is None:
                 db.add_reservation(data)

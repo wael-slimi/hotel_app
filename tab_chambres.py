@@ -322,15 +322,18 @@ class RoomsTab(tk.Frame):
         all_chambres = db.get_chambres()
         sejours_actifs = db.get_sejours_actifs()
 
-        self._occ_map = {s["chambre_id"]: s for s in sejours_actifs}
+        self._occ_map = {}
+        for s in sejours_actifs:
+            self._occ_map.setdefault(s["chambre_id"], []).append(s)
 
         # KPI stats (computed from all rooms + sejours)
         nb_occ = len(self._occ_map)
         total = len(all_chambres)
+        nb_guests = sum(len(v) for v in self._occ_map.values())
         libre = total - nb_occ
         taux = (nb_occ / total * 100) if total else 0
         self.kpi_total.configure(text=str(total))
-        self.kpi_occ.configure(text=str(nb_occ))
+        self.kpi_occ.configure(text=f"{nb_occ} ({nb_guests} pers.)")
         self.kpi_libre.configure(text=str(libre))
         self.kpi_taux.configure(text=f"{taux:.1f}%")
 
@@ -518,22 +521,28 @@ class RoomsTab(tk.Frame):
                 row=row, column=1, sticky="w", padx=6, pady=3)
 
         if statut == "Occupée":
-            sejour = self._occ_map.get(chambre["id"])
-            if sejour:
-                ligne("Nom", f"{sejour['prenom']} {sejour['nom']}", 0)
-                ligne("Identifiant", sejour["numero_identifiant"], 1)
-                ligne("Chambre", sejour["chambre_numero"], 2)
-                ligne("Date d'entrée",
-                      iso_to_date_str(sejour["date_entree"]) or sejour["date_entree"], 3)
-                ligne("Date de sortie prévue",
-                      iso_to_date_str(sejour["date_sortie"]) or sejour["date_sortie"], 4)
-                try:
-                    sortie = datetime.strptime(sejour["date_sortie"], "%Y-%m-%d").date()
-                    restant = (sortie - date.today()).days
-                    texte = f"{restant} nuit(s)" if restant > 0 else "Départ prévu aujourd'hui"
-                    ligne("Nuits restantes", texte, 5)
-                except Exception:
-                    pass
+            guests = self._occ_map.get(chambre["id"], [])
+            if guests:
+                r = 0
+                for i, sejour in enumerate(guests):
+                    prefix = f"Client {i+1}: " if len(guests) > 1 else ""
+                    ligne(f"{prefix}Nom", f"{sejour['prenom']} {sejour['nom']}", r); r += 1
+                    ligne(f"{prefix}Identifiant", sejour["numero_identifiant"], r); r += 1
+                    ligne(f"{prefix}Chambre", sejour["chambre_numero"], r); r += 1
+                    ligne(f"{prefix}Date d'entrée",
+                          iso_to_date_str(sejour["date_entree"]) or sejour["date_entree"], r); r += 1
+                    ligne(f"{prefix}Date de sortie prévue",
+                          iso_to_date_str(sejour["date_sortie"]) or sejour["date_sortie"], r); r += 1
+                    try:
+                        sortie = datetime.strptime(sejour["date_sortie"], "%Y-%m-%d").date()
+                        restant = (sortie - date.today()).days
+                        texte = f"{restant} nuit(s)" if restant > 0 else "Départ prévu aujourd'hui"
+                        ligne(f"{prefix}Nuits restantes", texte, r); r += 1
+                    except Exception:
+                        pass
+                    if i < len(guests) - 1:
+                        ttk.Separator(frame, orient="horizontal").grid(
+                            row=r, column=0, columnspan=2, sticky="ew", pady=4); r += 1
             else:
                 ttk.Label(frame, text="Aucun séjour actif trouvé.").grid(
                     row=0, column=0, columnspan=2, pady=8)

@@ -616,7 +616,12 @@ def add_sejour(client_id, chambre_id, date_entree):
         (client_id, chambre_id, date_entree),
     )
     sejour_id = cur.lastrowid
-    cur.execute("UPDATE chambres SET etat='Occupée' WHERE id=?", (chambre_id,))
+    already_occupied = cur.execute(
+        "SELECT 1 FROM sejours WHERE chambre_id=? AND statut='En cours' AND id!=? LIMIT 1",
+        (chambre_id, sejour_id)
+    ).fetchone()
+    if not already_occupied:
+        cur.execute("UPDATE chambres SET etat='Occupée' WHERE id=?", (chambre_id,))
     conn.commit()
     conn.close()
     return sejour_id
@@ -700,7 +705,12 @@ def checkout_sejour(sejour_id, date_sortie=None):
         (date_sortie, sejour_id),
     )
     if sejour:
-        cur.execute("UPDATE chambres SET etat='Libre' WHERE id=?", (sejour["chambre_id"],))
+        other_active = cur.execute(
+            "SELECT 1 FROM sejours WHERE chambre_id=? AND statut='En cours' AND id!=? LIMIT 1",
+            (sejour["chambre_id"], sejour_id)
+        ).fetchone()
+        if not other_active:
+            cur.execute("UPDATE chambres SET etat='Libre' WHERE id=?", (sejour["chambre_id"],))
     conn.commit()
     conn.close()
 
@@ -1097,6 +1107,23 @@ def get_reservation(reservation_id):
     return row
 
 
+def check_reservation_overlap(chambre_id, date_arrivee, date_depart, exclude_id=None):
+    """Check if a reservation overlaps with existing ones for the same room."""
+    conn = get_connection()
+    query = (
+        "SELECT id, nom, prenom, date_arrivee, date_depart FROM reservations "
+        "WHERE chambre_id=? AND statut='RESERVE' "
+        "AND date_arrivee <= ? AND date_depart >= ?"
+    )
+    params = [chambre_id, date_depart, date_arrivee]
+    if exclude_id:
+        query += " AND id!=?"
+        params.append(exclude_id)
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+    return rows
+
+
 def add_reservation(data):
     conn = get_connection()
     cur = conn.cursor()
@@ -1117,10 +1144,19 @@ def add_reservation(data):
         )
     )
     if data.get("chambre_id"):
-        cur.execute(
-            "UPDATE chambres SET etat='Réservée' WHERE id=?",
+        has_other_rez = cur.execute(
+            "SELECT 1 FROM reservations WHERE chambre_id=? AND statut='RESERVE' AND id!=? LIMIT 1",
+            (data["chambre_id"], cur.lastrowid)
+        ).fetchone()
+        has_active_sejour = cur.execute(
+            "SELECT 1 FROM sejours WHERE chambre_id=? AND statut='En cours' LIMIT 1",
             (data["chambre_id"],)
-        )
+        ).fetchone()
+        if not has_other_rez and not has_active_sejour:
+            cur.execute(
+                "UPDATE chambres SET etat='Réservée' WHERE id=?",
+                (data["chambre_id"],)
+            )
     conn.commit()
     conn.close()
 

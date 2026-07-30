@@ -298,10 +298,15 @@ class ClientsTab(tk.Frame):
     def _refresh_chambre_combo(self):
         self.chambre_map = {"— Aucune —": None}
         vals = ["— Aucune —"]
-        sejours_actifs = {s["chambre_id"] for s in db.get_sejours_actifs()}
+        sejours_actifs = db.get_sejours_actifs()
+        occ_count = {}
+        for s in sejours_actifs:
+            occ_count[s["chambre_id"]] = occ_count.get(s["chambre_id"], 0) + 1
         for ch in db.get_chambres():
-            if ch["etat"] == "Libre" and ch["id"] not in sejours_actifs:
-                txt = f"{ch['numero']} - {ch['type']} ({ch['prix']} TND)"
+            if ch["etat"] in ("Libre", "Occupée"):
+                nb = occ_count.get(ch["id"], 0)
+                suffix = f" ({nb} occupant(s))" if nb > 0 else ""
+                txt = f"{ch['numero']} - {ch['type']} ({ch['prix']} TND){suffix}"
                 self.chambre_map[txt] = ch["id"]
                 vals.append(txt)
         self.chambre_combo["values"] = vals
