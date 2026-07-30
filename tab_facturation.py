@@ -653,6 +653,10 @@ class FacturationTab(tk.Frame):
             mode_paiement=self.mode_var.get(),
             nom_client=nom_client,
             sejour_id=client.get("sejour_id"),
+            type_identifiant=client.get("type_identifiant", ""),
+            numero_identifiant=client.get("numero_identifiant", ""),
+            adresse=client.get("adresse", ""),
+            chambre_numero=client.get("chambre_numero", ""),
         )
 
         self.derniere_facture_id = facture_id
@@ -1206,6 +1210,10 @@ class FacturationTab(tk.Frame):
                 mode_paiement=self.mode_var.get(),
                 nom_client=nom_client,
                 sejour_id=client.get("sejour_id"),
+                type_identifiant=client.get("type_identifiant", ""),
+                numero_identifiant=client.get("numero_identifiant", ""),
+                adresse=client.get("adresse", ""),
+                chambre_numero=client.get("chambre_numero", ""),
             )
             self.facture_id_map[texte] = facture_id
 

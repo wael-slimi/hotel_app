@@ -160,6 +160,26 @@ def init_db():
         conn.commit()
     except Exception:
         pass
+    try:
+        cur.execute("ALTER TABLE factures ADD COLUMN type_identifiant TEXT DEFAULT ''")
+        conn.commit()
+    except Exception:
+        pass
+    try:
+        cur.execute("ALTER TABLE factures ADD COLUMN numero_identifiant TEXT DEFAULT ''")
+        conn.commit()
+    except Exception:
+        pass
+    try:
+        cur.execute("ALTER TABLE factures ADD COLUMN adresse TEXT DEFAULT ''")
+        conn.commit()
+    except Exception:
+        pass
+    try:
+        cur.execute("ALTER TABLE factures ADD COLUMN chambre_numero TEXT DEFAULT ''")
+        conn.commit()
+    except Exception:
+        pass
 
     cur.execute(
         """
@@ -371,6 +391,27 @@ def init_db():
         conn.execute(
             "UPDATE factures SET montant_ht=?, tva=? WHERE id=?",
             (ht, tva_val, r["id"])
+        )
+    if rows:
+        conn.commit()
+
+    # Migration: populate client info on existing factures from JOINs
+    rows = conn.execute(
+        "SELECT f.id, c.type_identifiant, c.numero_identifiant, c.adresse, "
+        "ch.numero AS chambre_numero "
+        "FROM factures f "
+        "LEFT JOIN clients c ON c.id = f.client_id "
+        "LEFT JOIN sejours s ON s.id = f.sejour_id "
+        "LEFT JOIN chambres ch ON ch.id = s.chambre_id "
+        "WHERE f.chambre_numero = '' OR f.chambre_numero IS NULL "
+        "OR f.numero_identifiant = '' OR f.numero_identifiant IS NULL"
+    ).fetchall()
+    for r in rows:
+        conn.execute(
+            "UPDATE factures SET type_identifiant=?, numero_identifiant=?, "
+            "adresse=?, chambre_numero=? WHERE id=?",
+            (r["type_identifiant"] or "", r["numero_identifiant"] or "",
+             r["adresse"] or "", r["chambre_numero"] or "", r["id"])
         )
     if rows:
         conn.commit()
@@ -817,7 +858,9 @@ def get_next_numero_facture():
 
 def create_facture(client_id, date_facture, date_entree, date_sortie,
                     nb_nuits, lignes, remise=0.0, mode_paiement="Espèces",
-                    nom_client="", sejour_id=None):
+                    nom_client="", sejour_id=None,
+                    type_identifiant="", numero_identifiant="",
+                    adresse="", chambre_numero=""):
     """
     lignes: liste de tuples (description, quantite, prix_unitaire)
     Retourne (facture_id, numero, montant_total)
@@ -843,12 +886,14 @@ def create_facture(client_id, date_facture, date_entree, date_sortie,
         """
         INSERT INTO factures (numero, client_id, nom_client, date_facture,
                                date_entree, date_sortie, nb_nuits, montant_total,
-                               remise, mode_paiement, sejour_id, montant_ht, tva)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               remise, mode_paiement, sejour_id, montant_ht, tva,
+                               type_identifiant, numero_identifiant, adresse, chambre_numero)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (numero, client_id, nom_client, date_facture, date_entree, date_sortie,
          nb_nuits, montant_total, remise, mode_paiement, sejour_id,
-         montant_ht, tva),
+         montant_ht, tva, type_identifiant, numero_identifiant, adresse,
+         chambre_numero),
     )
     facture_id = cur.lastrowid
 
@@ -881,8 +926,13 @@ def get_facture(facture_id):
     conn = get_connection()
     facture = conn.execute(
         """
-        SELECT f.*, c.nom, c.prenom, c.numero_identifiant, c.type_identifiant,
-               c.adresse, ch.numero AS chambre_numero, ch.prix AS chambre_prix
+        SELECT f.*,
+               c.nom AS nom, c.prenom AS prenom,
+               COALESCE(NULLIF(f.numero_identifiant, ''), c.numero_identifiant, '') AS numero_identifiant,
+               COALESCE(NULLIF(f.type_identifiant, ''), c.type_identifiant, '') AS type_identifiant,
+               COALESCE(NULLIF(f.adresse, ''), c.adresse, '') AS adresse,
+               COALESCE(NULLIF(f.chambre_numero, ''), ch.numero, '') AS chambre_numero,
+               ch.prix AS chambre_prix
         FROM factures f
         LEFT JOIN clients c ON c.id = f.client_id
         LEFT JOIN sejours s ON s.id = f.sejour_id

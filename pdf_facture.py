@@ -107,6 +107,11 @@ def generer_facture_pdf(facture_id, chemin_pdf):
 
     # ----------------- Informations client -----------------
     nom_complet = f"{facture['prenom'] or ''} {facture['nom'] or ''}".strip()
+    if not nom_complet:
+        try:
+            nom_complet = facture["nom_client"] or ""
+        except (IndexError, KeyError):
+            nom_complet = ""
     info_client = [
         ["Client :", nom_complet],
         ["Identifiant :", f"{facture['type_identifiant'] or ''} "
@@ -140,8 +145,8 @@ def generer_facture_pdf(facture_id, chemin_pdf):
     if facture["remise"]:
         data.append(["Remise", "", "", f"-{facture['remise']:.3f}"])
 
-    montant_ht = float(facture.get("montant_ht", 0) or 0)
-    tva_val = float(facture.get("tva", 0) or 0)
+    montant_ht = float(facture["montant_ht"] or 0)
+    tva_val = float(facture["tva"] or 0)
     if montant_ht > 0 or tva_val > 0:
         data.append(["", "", "HT", f"{montant_ht:.3f} TND"])
         data.append(["", "", "TVA (7%)", f"{tva_val:.3f} TND"])

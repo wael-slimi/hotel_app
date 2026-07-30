@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
+import os
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 from datetime import date
 
 import database as db
@@ -524,11 +525,11 @@ class ClientsTab(tk.Frame):
 
         if early:
             nb_nuits = max((date.fromisoformat(today) - date.fromisoformat(sejour["date_entree"])).days, 1)
+            nb_prevues = max((date.fromisoformat(sejour["date_sortie"]) - date.fromisoformat(sejour["date_entree"])).days, 1)
             msg = (f"Départ anticipé ?\n\n"
                    f"Le séjour prévoit une sortie le "
                    f"{iso_to_date_str(sejour['date_sortie'])}.\n"
-                   f"Nuits passées : {nb_nuits} / "
-                   f"{sejour['nb_nuits'] or '?'}\n\n"
+                   f"Nuits passées : {nb_nuits} / {nb_prevues}\n\n"
                    f"Confirmer le départ anticipé ?")
         else:
             msg = (f"Confirmer la sortie de {client['prenom']} {client['nom']} "
@@ -556,6 +557,10 @@ class ClientsTab(tk.Frame):
                 mode_paiement="Espèces",
                 nom_client=nom_client,
                 sejour_id=sejour["id"],
+                type_identifiant=client.get("type_identifiant", ""),
+                numero_identifiant=client.get("numero_identifiant", ""),
+                adresse=client.get("adresse", ""),
+                chambre_numero=chambre["numero"] if chambre else "",
             )
             if messagebox.askyesno(
                     "Facture générée",
@@ -565,8 +570,16 @@ class ClientsTab(tk.Frame):
                     f"Générer le PDF ?"):
                 try:
                     from pdf_facture import generer_facture_pdf
-                    chemin = generer_facture_pdf(fid)
-                    messagebox.showinfo("PDF", f"Facture enregistrée :\n{chemin}")
+                    nom_fichier_defaut = f"Facture_{numero}.pdf"
+                    chemin = filedialog.asksaveasfilename(
+                        title="Enregistrer la facture",
+                        defaultextension=".pdf",
+                        initialfile=nom_fichier_defaut,
+                        filetypes=[("Fichier PDF", "*.pdf")],
+                    )
+                    if chemin:
+                        generer_facture_pdf(fid, chemin)
+                        messagebox.showinfo("PDF", f"Facture enregistrée :\n{chemin}")
                 except Exception as e:
                     messagebox.showerror("Erreur PDF", str(e))
             self.app.refresh_stats_tab()
@@ -582,7 +595,14 @@ class ClientsTab(tk.Frame):
             messagebox.showerror("Erreur", "Client introuvable.")
             return
         try:
-            chemin = generer_fiche_police(dict(client))
+            data = dict(client)
+            sejour = db.get_sejour_actif_client(self.selected_client_id)
+            if sejour:
+                data["chambre_numero"] = sejour["chambre_numero"]
+                data["date_entree"] = sejour["date_entree"]
+                data["date_sortie"] = sejour["date_sortie"]
+                data["statut"] = sejour["statut"]
+            chemin = generer_fiche_police(data)
             messagebox.showinfo("Succès", f"Fiche Police générée :\n{chemin}")
         except Exception as e:
             messagebox.showerror("Erreur PDF", f"Impossible de générer la fiche :\n{e}")
