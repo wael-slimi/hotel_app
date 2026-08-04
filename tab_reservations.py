@@ -238,7 +238,42 @@ class ReservationsTab(tk.Frame):
         outer = tk.Frame(win, bg=BG)
         outer.pack(fill="both", expand=True)
 
-        form_card = tk.Frame(outer, bg=CARD_BG, bd=0,
+        canvas = tk.Canvas(outer, bg=BG, bd=0, highlightthickness=0)
+        scrollbar = tk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        scroll_frame = tk.Frame(canvas, bg=BG)
+
+        scroll_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        def _on_button4(event):
+            canvas.yview_scroll(-1, "units")
+        def _on_button5(event):
+            canvas.yview_scroll(1, "units")
+        canvas.bind("<MouseWheel>", _on_mousewheel)
+        canvas.bind("<Button-4>", _on_button4)
+        canvas.bind("<Button-5>", _on_button5)
+        scroll_frame.bind("<MouseWheel>", _on_mousewheel)
+        scroll_frame.bind("<Button-4>", _on_button4)
+        scroll_frame.bind("<Button-5>", _on_button5)
+
+        def _cleanup():
+            canvas.unbind("<MouseWheel>")
+            canvas.unbind("<Button-4>")
+            canvas.unbind("<Button-5>")
+            scroll_frame.unbind("<MouseWheel>")
+            scroll_frame.unbind("<Button-4>")
+            scroll_frame.unbind("<Button-5>")
+        win.bind("<Destroy>", lambda e: _cleanup() if e.widget == win else None)
+
+        form_card = tk.Frame(scroll_frame, bg=CARD_BG, bd=0,
                              highlightbackground=CARD_BORDER, highlightthickness=1)
         form_card.pack(fill="both", expand=True, padx=8, pady=8)
 
@@ -275,8 +310,6 @@ class ReservationsTab(tk.Frame):
             else TYPES_IDENTIFIANT[0])
         num_id_var = tk.StringVar(
             value=reservation["numero_identifiant"] if reservation else "")
-        nb_var = tk.StringVar(
-            value=str(reservation["nb_personnes"]) if reservation else "1")
         notes_var = tk.StringVar(
             value=reservation["notes"] if reservation else "")
         statut_var = tk.StringVar(
@@ -382,20 +415,158 @@ class ReservationsTab(tk.Frame):
         if reservation and reservation["date_depart"]:
             date_depart.set(iso_to_date_str(reservation["date_depart"]))
 
-        row(10, "Nb. personnes", lambda p: entry(p, nb_var, width=6))
-        row(11, "Notes", lambda p: entry(p, notes_var, width=30))
+        row(10, "Notes", lambda p: entry(p, notes_var, width=30))
+
+        # ── Section: Compagnons ──────────────────────────────────────
+        tk.Label(form_grid, text="Compagnons (même chambre)", bg=NEUTRE_CLAIR,
+                 fg=PRIMAIRE, font=("Segoe UI", 10, "bold"), anchor="w").grid(
+            row=11, column=0, columnspan=2, sticky="ew", padx=14,
+            pady=(10, 2), ipady=3)
+
+        tk.Label(form_grid, text="Nombre d'accompagnants", bg=CARD_BG,
+                 fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
+            row=12, column=0, sticky="w", padx=18, pady=4)
+        comp_count_var = tk.StringVar(value="0")
+        comp_count_combo = ttk.Combobox(
+            form_grid, textvariable=comp_count_var,
+            values=["0", "1", "2", "3"], width=22, state="readonly")
+        comp_count_combo.grid(row=12, column=1, sticky="w", padx=4, pady=4)
+
+        comp_container = tk.Frame(form_grid, bg=CARD_BG)
+        comp_container.grid(row=13, column=0, columnspan=2, sticky="ew",
+                            padx=14, pady=(0, 6))
+        comp_forms = []
+
+        # ── Capacity data for companion limit ───────────────────────
+        chambre_cap = {}
+        sejours_actifs = db.get_sejours_actifs()
+        occ_count = {}
+        for s in sejours_actifs:
+            occ_count[s["chambre_id"]] = occ_count.get(s["chambre_id"], 0) + 1
+        for ch in db.get_chambres():
+            cap = ch["max_personnes"] or 1
+            occ = occ_count.get(ch["id"], 0)
+            chambre_cap[ch["id"]] = (cap, occ)
+
+        def _rebuild_compagnon_forms():
+            for w in comp_container.winfo_children():
+                w.destroy()
+            comp_forms.clear()
+            try:
+                nb = int(comp_count_var.get())
+            except ValueError:
+                nb = 0
+            for i in range(nb):
+                frame = tk.LabelFrame(comp_container,
+                                      text=f"Compagnon {i + 1}",
+                                      bg=CARD_BG, fg=PRIMAIRE,
+                                      font=("Segoe UI", 10, "bold"),
+                                      bd=1, relief="groove")
+                frame.pack(fill="x", padx=4, pady=4)
+                form_vars = {}
+                r = 0
+
+                def _entry(parent, width=24):
+                    v = tk.StringVar()
+                    tk.Entry(parent, textvariable=v, width=width,
+                             font=("Segoe UI", 9), bd=1, relief="solid",
+                             highlightbackground=CARD_BORDER).grid(
+                        row=r, column=1, sticky="w", padx=4, pady=3)
+                    return v
+
+                def _label(text):
+                    tk.Label(frame, text=text, bg=CARD_BG, fg=TEXT_PRIMARY,
+                             font=("Segoe UI", 9)).grid(
+                        row=r, column=0, sticky="w", padx=18, pady=3)
+
+                _label("Nom *")
+                form_vars["nom"] = _entry(frame); r += 1
+                _label("Prénom *")
+                form_vars["prenom"] = _entry(frame); r += 1
+
+                _label("Type d'identifiant *")
+                v = tk.StringVar(value=TYPES_IDENTIFIANT[0])
+                ttk.Combobox(frame, textvariable=v, values=TYPES_IDENTIFIANT,
+                             width=22, state="readonly").grid(
+                    row=r, column=1, sticky="w", padx=4, pady=3)
+                form_vars["type_identifiant"] = v; r += 1
+
+                _label("N° identifiant *")
+                form_vars["numero_identifiant"] = _entry(frame); r += 1
+
+                _label("Date de naissance")
+                de = DateEntry(frame, width=12)
+                de.grid(row=r, column=1, sticky="w", padx=4, pady=3)
+                form_vars["date_naissance"] = de; r += 1
+
+                _label("Lieu de naissance")
+                form_vars["lieu_naissance"] = _entry(frame); r += 1
+
+                _label("Adresse")
+                form_vars["adresse"] = _entry(frame, width=28); r += 1
+
+                _label("Téléphone")
+                form_vars["telephone"] = _entry(frame); r += 1
+
+                _label("Venant de")
+                form_vars["venant_de"] = _entry(frame); r += 1
+
+                _label("Allant à")
+                form_vars["allant_a"] = _entry(frame); r += 1
+
+                comp_forms.append(form_vars)
+
+        def _update_comp_max():
+            ch_text = chambre_var.get()
+            ch_id = chambre_map.get(ch_text)
+            if ch_id is None:
+                max_comp = 3
+            else:
+                cap, occ = chambre_cap.get(ch_id, (1, 0))
+                max_comp = min(cap - occ, 3)
+                if max_comp < 0:
+                    max_comp = 0
+            allowed = [str(i) for i in range(max_comp + 1)]
+            comp_count_combo["values"] = allowed
+            cur = comp_count_var.get()
+            if cur not in allowed:
+                comp_count_var.set("0")
+                _rebuild_compagnon_forms()
+
+        comp_count_var.trace_add("write", lambda *a: _rebuild_compagnon_forms())
+        chambre_var.trace_add("write", lambda *a: _update_comp_max())
+        _update_comp_max()
+        if reservation:
+            companions = db.get_reservation_companions(reservation["id"])
+            if companions:
+                comp_count_var.set(str(len(companions)))
+                _rebuild_compagnon_forms()
+                for i, cp in enumerate(companions):
+                    if i < len(comp_forms):
+                        comp_forms[i]["nom"].set(cp["nom"])
+                        comp_forms[i]["prenom"].set(cp["prenom"])
+                        comp_forms[i]["type_identifiant"].set(cp["type_identifiant"])
+                        comp_forms[i]["numero_identifiant"].set(cp["numero_identifiant"])
+                        if cp["date_naissance"]:
+                            comp_forms[i]["date_naissance"].set(
+                                iso_to_date_str(cp["date_naissance"]))
+                        comp_forms[i]["lieu_naissance"].set(cp["lieu_naissance"] or "")
+                        comp_forms[i]["adresse"].set(cp["adresse"] or "")
+                        comp_forms[i]["telephone"].set(cp["telephone"] or "")
+                        comp_forms[i]["venant_de"].set(cp["venant_de"] or "")
+                        comp_forms[i]["allant_a"].set(cp["allant_a"] or "")
 
         tk.Label(form_grid, text="Statut", bg=CARD_BG, fg=TEXT_PRIMARY,
                  font=("Segoe UI", 9)).grid(
-            row=12, column=0, sticky="w", padx=18, pady=4)
+            row=14, column=0, sticky="w", padx=18, pady=4)
         ttk.Combobox(form_grid, textvariable=statut_var,
                      values=STATUTS_RESERVATION, width=22,
-                     state="readonly").grid(row=12, column=1, sticky="w",
+                     state="readonly").grid(row=14, column=1, sticky="w",
                                             padx=4, pady=4)
 
         # ── Buttons ─────────────────────────────────────────────────
         btn_frame = tk.Frame(form_grid, bg=CARD_BG)
-        btn_frame.grid(row=13, column=0, columnspan=2, pady=(12, 14))
+        btn_frame.grid(row=15, column=0, columnspan=2, pady=(12, 14))
 
         def enregistrer():
             nom = nom_var.get().strip()
@@ -424,15 +595,6 @@ class ReservationsTab(tk.Frame):
                     "La date d'arrivée ne peut pas être dans le passé.",
                     parent=win)
                 return
-            try:
-                nb = int(nb_var.get())
-                if nb < 1:
-                    raise ValueError
-            except ValueError:
-                messagebox.showerror(
-                    "Erreur", "Le nombre de personnes doit être ≥ 1.",
-                    parent=win)
-                return
 
             erreur_format = db.validate_identifiant_format(
                 type_id_var.get(), num_id_var.get().strip()
@@ -441,6 +603,16 @@ class ReservationsTab(tk.Frame):
                 messagebox.showerror("Erreur", erreur_format, parent=win)
                 return
 
+            # Count valid companions for nb_personnes
+            nb_comp = 0
+            for comp in comp_forms:
+                cn = comp["nom"].get().strip()
+                cp = comp["prenom"].get().strip()
+                cnum = comp["numero_identifiant"].get().strip()
+                if cn and cp and cnum:
+                    nb_comp += 1
+            nb_personnes = 1 + nb_comp
+
             data = {
                 "nom": nom, "prenom": prenom,
                 "telephone": tel_var.get().strip(),
@@ -448,7 +620,7 @@ class ReservationsTab(tk.Frame):
                 "numero_identifiant": num_id_var.get().strip(),
                 "chambre_id": chambre_map.get(chambre_var.get()),
                 "date_arrivee": d_arr, "date_depart": d_dep,
-                "nb_personnes": nb,
+                "nb_personnes": nb_personnes,
                 "notes": notes_var.get().strip(),
                 "statut": statut_var.get(),
                 "client_id": _linked_client_id[0],
@@ -470,10 +642,39 @@ class ReservationsTab(tk.Frame):
 
             if reservation is None:
                 db.add_reservation(data)
+                new_res = db.get_reservations()
+                res_id = new_res[-1]["id"] if new_res else None
                 messagebox.showinfo("Succès", "Réservation ajoutée.", parent=win)
             else:
-                db.update_reservation(reservation["id"], data)
+                res_id = reservation["id"]
+                db.update_reservation(res_id, data)
                 messagebox.showinfo("Succès", "Réservation modifiée.", parent=win)
+
+            # Save companions to DB
+            if res_id:
+                db.delete_reservation_companions(res_id)
+                for comp in comp_forms:
+                    cn = comp["nom"].get().strip()
+                    cp = comp["prenom"].get().strip()
+                    cnum = comp["numero_identifiant"].get().strip()
+                    if not (cn and cp and cnum):
+                        continue
+                    cde = ""
+                    try:
+                        cde = comp["date_naissance"].get_date().strftime("%Y-%m-%d")
+                    except Exception:
+                        pass
+                    db.add_reservation_companion(res_id, {
+                        "nom": cn, "prenom": cp,
+                        "type_identifiant": comp["type_identifiant"].get(),
+                        "numero_identifiant": cnum,
+                        "date_naissance": cde,
+                        "lieu_naissance": comp["lieu_naissance"].get().strip(),
+                        "adresse": comp["adresse"].get().strip(),
+                        "telephone": comp["telephone"].get().strip(),
+                        "venant_de": comp["venant_de"].get().strip(),
+                        "allant_a": comp["allant_a"].get().strip(),
+                    })
 
             win.destroy()
             self.refresh()
@@ -558,16 +759,34 @@ class ReservationsTab(tk.Frame):
             return
 
         client = None
-        if r.get("client_id"):
-            client = db.get_client(r["client_id"])
-        if not client and r.get("numero_identifiant"):
-            client = db.get_client_by_identifiant(r["numero_identifiant"])
+        try:
+            cid = r["client_id"]
+        except (IndexError, KeyError):
+            cid = None
+        if cid:
+            client = db.get_client(cid)
+        if not client:
+            try:
+                num_id = r["numero_identifiant"]
+            except (IndexError, KeyError):
+                num_id = None
+            if num_id:
+                client = db.get_client_by_identifiant(num_id)
 
         if not client:
-            messagebox.showerror("Erreur",
-                                 "Aucun client associé à cette réservation. "
-                                 "Veuillez d'abord créer le client.")
-            return
+            client_id = db.add_client({
+                "nom": r["nom"],
+                "prenom": r["prenom"],
+                "type_identifiant": r["type_identifiant"],
+                "numero_identifiant": r["numero_identifiant"] or "",
+                "date_naissance": "",
+                "lieu_naissance": "",
+                "adresse": "",
+                "telephone": r["telephone"] or "",
+                "venant_de": "",
+                "allant_a": "",
+            })
+            client = db.get_client(client_id)
 
         active = db.get_sejour_actif_client(client["id"])
         if active:
@@ -582,21 +801,76 @@ class ReservationsTab(tk.Frame):
                 f"en chambre {r['chambre_numero']} ?"):
             return
 
+        # Pre-validate: count primary + valid companions vs room capacity
+        companions = db.get_reservation_companions(r["id"])
+        valid_companions = []
+        for cp in companions:
+            cn = cp["nom"].strip()
+            cnum = cp["numero_identifiant"].strip()
+            if cn and cnum:
+                valid_companions.append(cp)
+        total_needed = 1 + len(valid_companions)
+
+        chambre = db.get_chambre(r["chambre_id"])
+        max_p = chambre["max_personnes"] if chambre else 1
+        sejours_actifs = db.get_sejours_actifs()
+        nb_actuels = sum(1 for s in sejours_actifs if s["chambre_id"] == r["chambre_id"])
+        if nb_actuels + total_needed > max_p:
+            messagebox.showerror(
+                "Erreur capacité",
+                f"La chambre {r['chambre_numero']} ne peut accueillir que {max_p} "
+                f"personne(s). Vous essayez d'en placer {total_needed} "
+                f"(client + {len(valid_companions)} compagnon(s)), "
+                f"mais il y a déjà {nb_actuels} occupant(s).")
+            return
+
         try:
             db.add_sejour(client["id"], r["chambre_id"],
-                          date.today().strftime("%Y-%m-%d"))
+                          date.today().strftime("%Y-%m-%d"),
+                          r["date_depart"])
         except Exception as e:
             messagebox.showerror("Erreur", str(e))
             return
 
-        db.update_reservation(self.selected_reservation_id,
-                              {"statut": "CHECKED_IN"})
+        # Create companion clients + sejours (capacity already validated)
+        nb_comp_created = 0
+        for cp in valid_companions:
+            cnum = cp["numero_identifiant"].strip()
+            existing = db.get_client_by_identifiant(cnum)
+            if existing:
+                comp_id = existing["id"]
+            else:
+                comp_id = db.add_client({
+                    "nom": cp["nom"], "prenom": cp["prenom"],
+                    "type_identifiant": cp["type_identifiant"],
+                    "numero_identifiant": cnum,
+                    "date_naissance": cp["date_naissance"],
+                    "lieu_naissance": cp["lieu_naissance"],
+                    "adresse": cp["adresse"],
+                    "telephone": cp["telephone"],
+                    "venant_de": cp["venant_de"],
+                    "allant_a": cp["allant_a"],
+                })
+            active_comp = db.get_sejour_actif_client(comp_id)
+            if not active_comp:
+                db.add_sejour(comp_id, r["chambre_id"],
+                              date.today().strftime("%Y-%m-%d"),
+                              r["date_depart"],
+                              skip_capacity_check=True)
+                nb_comp_created += 1
+
+        update_data = dict(r)
+        update_data["statut"] = "CHECKED_IN"
+        update_data["client_id"] = client["id"]
+        db.update_reservation(self.selected_reservation_id, update_data)
+
+        msg = (f"{client['prenom']} {client['nom']} est maintenant enregistré(e) "
+               f"en chambre {r['chambre_numero']}.")
+        if nb_comp_created > 0:
+            msg += f"\n\n{nb_comp_created} compagnon(s) ajouté(s)."
 
         self.selected_reservation_id = None
         self.refresh()
         self.app.refresh_rooms_tab()
         self.app.refresh_clients_tab()
-        messagebox.showinfo(
-            "Check-in effectué",
-            f"{client['prenom']} {client['nom']} est maintenant enregistré(e) "
-            f"comme client en chambre {r['chambre_numero']}.")
+        messagebox.showinfo("Check-in effectué", msg)

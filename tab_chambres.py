@@ -660,21 +660,30 @@ class RoomsTab(tk.Frame):
                      width=22, state="readonly").grid(
             row=3, column=1, columnspan=2, sticky="w", **pad)
 
+        # --- Capacité max ---
+        tk.Label(win, text="Capacité max").grid(row=4, column=0, sticky="e", **pad)
+        max_p_var = tk.StringVar(
+            value=str(chambre["max_personnes"]) if est_edition else "1")
+        ttk.Combobox(win, textvariable=max_p_var,
+                     values=["1", "2", "3", "4"],
+                     width=22, state="readonly").grid(
+            row=4, column=1, columnspan=2, sticky="w", **pad)
+
         # --- Description ---
-        tk.Label(win, text="Description").grid(row=4, column=0, sticky="ne", **pad)
+        tk.Label(win, text="Description").grid(row=5, column=0, sticky="ne", **pad)
         desc_var = tk.StringVar(value=chambre["description"] if est_edition else "")
         tk.Entry(win, textvariable=desc_var, width=25).grid(
-            row=4, column=1, columnspan=2, sticky="w", **pad)
+            row=5, column=1, columnspan=2, sticky="w", **pad)
 
         # ------------------------------------------------------------
         # Photos (multiples)
         # ------------------------------------------------------------
-        tk.Label(win, text="Photos").grid(row=5, column=0, sticky="ne", **pad)
+        tk.Label(win, text="Photos").grid(row=6, column=0, sticky="ne", **pad)
 
         photos_list = []  # list of (path, label_widget, btn_widget)
 
         photos_container = tk.Frame(win, bd=1, relief="solid", bg="white")
-        photos_container.grid(row=5, column=1, columnspan=2, sticky="ew",
+        photos_container.grid(row=6, column=1, columnspan=2, sticky="ew",
                               padx=10, pady=6, ipady=4)
 
         def rebuild_photos_ui():
@@ -761,11 +770,15 @@ class RoomsTab(tk.Frame):
             except ValueError:
                 messagebox.showerror("Erreur", "Le prix doit être un nombre valide.")
                 return
+            try:
+                max_personnes = int(max_p_var.get())
+            except ValueError:
+                max_personnes = 1
 
             try:
                 if not est_edition:
                     db.add_chambre(numero, type_var.get(), prix, etat_var.get(),
-                                   desc_var.get(), "")
+                                   desc_var.get(), "", max_personnes)
                     # Get the new room's ID
                     nouvelles = db.get_chambres()
                     new_id = None
@@ -778,7 +791,8 @@ class RoomsTab(tk.Frame):
                         set_chambre_photos(new_id, paths)
                 else:
                     db.update_chambre(chambre["id"], numero, type_var.get(),
-                                       prix, etat_var.get(), desc_var.get(), "")
+                                       prix, etat_var.get(), desc_var.get(), "",
+                                       max_personnes)
                     paths = [p[0] for p in photos_list]
                     set_chambre_photos(chambre["id"], paths)
             except Exception as exc:

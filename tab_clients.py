@@ -35,13 +35,39 @@ class ClientsTab(tk.Frame):
 
     # ------------------------------------------------------------------
     def _build_ui(self):
-        # ── Left panel: form card ────────────────────────────────────
+        # ── Left panel: scrollable form card ─────────────────────────
         left = tk.Frame(self, bg=BG)
         left.pack(side="left", fill="y", padx=8, pady=8)
 
-        form_card = tk.Frame(left, bg=CARD_BG, bd=0,
+        canvas = tk.Canvas(left, bg=BG, bd=0, highlightthickness=0)
+        scrollbar = tk.Scrollbar(left, orient="vertical", command=canvas.yview)
+        self.scroll_frame = tk.Frame(canvas, bg=BG)
+
+        self.scroll_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=self.scroll_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        def _on_button4(event):
+            canvas.yview_scroll(-1, "units")
+        def _on_button5(event):
+            canvas.yview_scroll(1, "units")
+        canvas.bind("<MouseWheel>", _on_mousewheel)
+        canvas.bind("<Button-4>", _on_button4)
+        canvas.bind("<Button-5>", _on_button5)
+        self.scroll_frame.bind("<MouseWheel>", _on_mousewheel)
+        self.scroll_frame.bind("<Button-4>", _on_button4)
+        self.scroll_frame.bind("<Button-5>", _on_button5)
+
+        form_card = tk.Frame(self.scroll_frame, bg=CARD_BG, bd=0,
                              highlightbackground=CARD_BORDER, highlightthickness=1)
-        form_card.pack(fill="y", expand=True)
+        form_card.pack(fill="both", expand=True)
 
         tk.Label(form_card, text="Fiche client", bg=CARD_BG, fg=TEXT_PRIMARY,
                  font=("Segoe UI", 13, "bold")).pack(anchor="w", padx=18, pady=(14, 4))
@@ -98,6 +124,7 @@ class ClientsTab(tk.Frame):
             form_grid, textvariable=self.chambre_var,
             values=["— Aucune —"], width=28, state="readonly")
         self.chambre_combo.grid(row=r, column=1, sticky="w", padx=4, pady=3)
+        self.chambre_var.trace_add("write", lambda *a: self._update_comp_max())
         self._refresh_chambre_combo()
         r += 1
 
@@ -148,23 +175,25 @@ class ClientsTab(tk.Frame):
 
         self.vars["numero_identifiant"].trace_add("write", _on_cin_change)
 
-        # ── Section: Compagnon ──────────────────────────────────────
-        self._section_header(form_grid, "Compagnon (même chambre)", r); r += 1
+        # ── Section: Compagnons ─────────────────────────────────────
+        self._section_header(form_grid, "Compagnons (même chambre)", r); r += 1
 
-        self._add_field(form_grid, r, "Nom compagnon", "comp_nom"); r += 1
-        self._add_field(form_grid, r, "Prénom compagnon", "comp_prenom"); r += 1
-
-        tk.Label(form_grid, text="Type identifiant", bg=CARD_BG,
+        tk.Label(form_grid, text="Nombre d'accompagnants", bg=CARD_BG,
                  fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
             row=r, column=0, sticky="w", padx=18, pady=3)
-        self.vars["comp_type_identifiant"] = tk.StringVar(value=TYPES_IDENTIFIANT[0])
-        ttk.Combobox(form_grid, textvariable=self.vars["comp_type_identifiant"],
-                     values=TYPES_IDENTIFIANT, width=21,
-                     state="readonly").grid(row=r, column=1, sticky="w", padx=4, pady=3)
+        self.comp_count_var = tk.StringVar(value="0")
+        self.comp_count_combo = ttk.Combobox(
+            form_grid, textvariable=self.comp_count_var,
+            values=["0", "1", "2", "3"], width=21, state="readonly")
+        self.comp_count_combo.grid(row=r, column=1, sticky="w", padx=4, pady=3)
+        self.comp_count_var.trace_add("write", lambda *a: self._rebuild_compagnon_forms())
         r += 1
 
-        self._add_field(form_grid, r, "N° identifiant", "comp_numero_identifiant"); r += 1
-        self._add_field(form_grid, r, "Téléphone", "comp_telephone"); r += 1
+        self.comp_container = tk.Frame(form_grid, bg=CARD_BG)
+        self.comp_container.grid(row=r, column=0, columnspan=2, sticky="ew",
+                                 padx=14, pady=(0, 6))
+        self.comp_forms = []  # list of dicts with var references
+        r += 1
 
         # ── Section: Séjours ────────────────────────────────────────
         self._section_header(form_grid, "Séjours du client", r); r += 1
@@ -319,8 +348,120 @@ class ClientsTab(tk.Frame):
         self.vars[key] = var
         return widget
 
+    def _rebuild_compagnon_forms(self):
+        for w in self.comp_container.winfo_children():
+            w.destroy()
+        self.comp_forms = []
+
+        try:
+            nb = int(self.comp_count_var.get())
+        except ValueError:
+            nb = 0
+
+        for i in range(nb):
+            frame = tk.LabelFrame(self.comp_container,
+                                  text=f"Compagnon {i + 1}",
+                                  bg=CARD_BG, fg=PRIMAIRE,
+                                  font=("Segoe UI", 10, "bold"),
+                                  bd=1, relief="groove")
+            frame.pack(fill="x", padx=4, pady=4)
+
+            form_vars = {}
+            row = 0
+
+            # Nom
+            tk.Label(frame, text="Nom *", bg=CARD_BG, fg=TEXT_PRIMARY,
+                     font=("Segoe UI", 9)).grid(row=row, column=0, sticky="w", padx=18, pady=3)
+            v = tk.StringVar()
+            tk.Entry(frame, textvariable=v, width=24, font=("Segoe UI", 9),
+                     bd=1, relief="solid", highlightbackground=CARD_BORDER
+                     ).grid(row=row, column=1, sticky="w", padx=4, pady=3)
+            form_vars["nom"] = v; row += 1
+
+            # Prénom
+            tk.Label(frame, text="Prénom *", bg=CARD_BG, fg=TEXT_PRIMARY,
+                     font=("Segoe UI", 9)).grid(row=row, column=0, sticky="w", padx=18, pady=3)
+            v = tk.StringVar()
+            tk.Entry(frame, textvariable=v, width=24, font=("Segoe UI", 9),
+                     bd=1, relief="solid", highlightbackground=CARD_BORDER
+                     ).grid(row=row, column=1, sticky="w", padx=4, pady=3)
+            form_vars["prenom"] = v; row += 1
+
+            # Type identifiant
+            tk.Label(frame, text="Type d'identifiant *", bg=CARD_BG, fg=TEXT_PRIMARY,
+                     font=("Segoe UI", 9)).grid(row=row, column=0, sticky="w", padx=18, pady=3)
+            v = tk.StringVar(value=TYPES_IDENTIFIANT[0])
+            ttk.Combobox(frame, textvariable=v, values=TYPES_IDENTIFIANT,
+                         width=21, state="readonly"
+                         ).grid(row=row, column=1, sticky="w", padx=4, pady=3)
+            form_vars["type_identifiant"] = v; row += 1
+
+            # N° identifiant
+            tk.Label(frame, text="N° identifiant *", bg=CARD_BG, fg=TEXT_PRIMARY,
+                     font=("Segoe UI", 9)).grid(row=row, column=0, sticky="w", padx=18, pady=3)
+            v = tk.StringVar()
+            tk.Entry(frame, textvariable=v, width=24, font=("Segoe UI", 9),
+                     bd=1, relief="solid", highlightbackground=CARD_BORDER
+                     ).grid(row=row, column=1, sticky="w", padx=4, pady=3)
+            form_vars["numero_identifiant"] = v; row += 1
+
+            # Date de naissance
+            tk.Label(frame, text="Date de naissance", bg=CARD_BG, fg=TEXT_PRIMARY,
+                     font=("Segoe UI", 9)).grid(row=row, column=0, sticky="w", padx=18, pady=3)
+            de = DateEntry(frame, width=12)
+            de.grid(row=row, column=1, sticky="w", padx=4, pady=3)
+            form_vars["date_naissance"] = de; row += 1
+
+            # Lieu de naissance
+            tk.Label(frame, text="Lieu de naissance", bg=CARD_BG, fg=TEXT_PRIMARY,
+                     font=("Segoe UI", 9)).grid(row=row, column=0, sticky="w", padx=18, pady=3)
+            v = tk.StringVar()
+            tk.Entry(frame, textvariable=v, width=24, font=("Segoe UI", 9),
+                     bd=1, relief="solid", highlightbackground=CARD_BORDER
+                     ).grid(row=row, column=1, sticky="w", padx=4, pady=3)
+            form_vars["lieu_naissance"] = v; row += 1
+
+            # Adresse
+            tk.Label(frame, text="Adresse", bg=CARD_BG, fg=TEXT_PRIMARY,
+                     font=("Segoe UI", 9)).grid(row=row, column=0, sticky="w", padx=18, pady=3)
+            v = tk.StringVar()
+            tk.Entry(frame, textvariable=v, width=28, font=("Segoe UI", 9),
+                     bd=1, relief="solid", highlightbackground=CARD_BORDER
+                     ).grid(row=row, column=1, sticky="w", padx=4, pady=3)
+            form_vars["adresse"] = v; row += 1
+
+            # Téléphone
+            tk.Label(frame, text="Téléphone", bg=CARD_BG, fg=TEXT_PRIMARY,
+                     font=("Segoe UI", 9)).grid(row=row, column=0, sticky="w", padx=18, pady=3)
+            v = tk.StringVar()
+            tk.Entry(frame, textvariable=v, width=24, font=("Segoe UI", 9),
+                     bd=1, relief="solid", highlightbackground=CARD_BORDER
+                     ).grid(row=row, column=1, sticky="w", padx=4, pady=3)
+            form_vars["telephone"] = v; row += 1
+
+            # Venant de
+            tk.Label(frame, text="Venant de", bg=CARD_BG, fg=TEXT_PRIMARY,
+                     font=("Segoe UI", 9)).grid(row=row, column=0, sticky="w", padx=18, pady=3)
+            v = tk.StringVar()
+            tk.Entry(frame, textvariable=v, width=24, font=("Segoe UI", 9),
+                     bd=1, relief="solid", highlightbackground=CARD_BORDER
+                     ).grid(row=row, column=1, sticky="w", padx=4, pady=3)
+            form_vars["venant_de"] = v; row += 1
+
+            # Allant à
+            tk.Label(frame, text="Allant à", bg=CARD_BG, fg=TEXT_PRIMARY,
+                     font=("Segoe UI", 9)).grid(row=row, column=0, sticky="w", padx=18, pady=3)
+            v = tk.StringVar()
+            tk.Entry(frame, textvariable=v, width=24, font=("Segoe UI", 9),
+                     bd=1, relief="solid", highlightbackground=CARD_BORDER
+                     ).grid(row=row, column=1, sticky="w", padx=4, pady=3)
+            form_vars["allant_a"] = v; row += 1
+
+            self.comp_forms.append(form_vars)
+
     def _refresh_chambre_combo(self):
         self.chambre_map = {"— Aucune —": None}
+        self.chambre_cap = {}  # chambre_id -> max_personnes
         vals = ["— Aucune —"]
         sejours_actifs = db.get_sejours_actifs()
         occ_count = {}
@@ -329,13 +470,37 @@ class ClientsTab(tk.Frame):
         for ch in db.get_chambres():
             if ch["etat"] in ("Libre", "Occupée"):
                 nb = occ_count.get(ch["id"], 0)
-                suffix = f" ({nb} occupant(s))" if nb > 0 else ""
+                cap = ch["max_personnes"] or 1
+                self.chambre_cap[ch["id"]] = cap
+                suffix = f" ({nb}/{cap})" if nb > 0 else ""
                 txt = f"{ch['numero']} - {ch['type']} ({ch['prix']} TND){suffix}"
                 self.chambre_map[txt] = ch["id"]
                 vals.append(txt)
         self.chambre_combo["values"] = vals
         if self.chambre_var.get() not in vals:
             self.chambre_var.set("— Aucune —")
+        self._update_comp_max()
+
+    def _update_comp_max(self):
+        if not hasattr(self, "comp_count_combo"):
+            return
+        ch_text = self.chambre_var.get()
+        ch_id = self.chambre_map.get(ch_text)
+        if ch_id is None:
+            max_comp = 3
+        else:
+            cap = self.chambre_cap.get(ch_id, 1)
+            sejours_actifs = db.get_sejours_actifs()
+            occ = sum(1 for s in sejours_actifs if s["chambre_id"] == ch_id)
+            max_comp = min(cap - occ, 3)
+            if max_comp < 0:
+                max_comp = 0
+        allowed = [str(i) for i in range(max_comp + 1)]
+        self.comp_count_combo["values"] = allowed
+        cur = self.comp_count_var.get()
+        if cur not in allowed:
+            self.comp_count_var.set("0")
+            self._rebuild_compagnon_forms()
 
     # ------------------------------------------------------------------
     def refresh(self):
@@ -407,6 +572,35 @@ class ClientsTab(tk.Frame):
         self._refresh_chambre_combo()
         self._load_sejours(client_id)
 
+        # Detect companions in the same room
+        self.comp_count_var.set("0")
+        self._rebuild_compagnon_forms()
+        active = db.get_sejour_actif_client(client_id)
+        if active:
+            ch_id = active["chambre_id"]
+            sejours_actifs = db.get_sejours_actifs()
+            comp_list = [s for s in sejours_actifs
+                         if s["chambre_id"] == ch_id and s["client_id"] != client_id]
+            if comp_list:
+                self.comp_count_var.set(str(len(comp_list)))
+                self._rebuild_compagnon_forms()
+                for i, cs in enumerate(comp_list):
+                    if i < len(self.comp_forms):
+                        c = db.get_client(cs["client_id"])
+                        if c:
+                            self.comp_forms[i]["nom"].set(c["nom"])
+                            self.comp_forms[i]["prenom"].set(c["prenom"])
+                            self.comp_forms[i]["type_identifiant"].set(c["type_identifiant"])
+                            self.comp_forms[i]["numero_identifiant"].set(c["numero_identifiant"])
+                            if c["date_naissance"]:
+                                self.comp_forms[i]["date_naissance"].set(
+                                    iso_to_date_str(c["date_naissance"]))
+                            self.comp_forms[i]["lieu_naissance"].set(c["lieu_naissance"] or "")
+                            self.comp_forms[i]["adresse"].set(c["adresse"] or "")
+                            self.comp_forms[i]["telephone"].set(c["telephone"] or "")
+                            self.comp_forms[i]["venant_de"].set(c["venant_de"] or "")
+                            self.comp_forms[i]["allant_a"].set(c["allant_a"] or "")
+
     def nouveau(self):
         self.selected_client_id = None
         for var in self.vars.values():
@@ -416,6 +610,8 @@ class ClientsTab(tk.Frame):
         self.date_entree.set("")
         self.date_sortie.set("")
         self.chambre_var.set("— Aucune —")
+        self.comp_count_var.set("0")
+        self._rebuild_compagnon_forms()
         self.cin_hint.config(text="", fg=TEXT_SECONDARY)
         self._refresh_chambre_combo()
         for item in self.sejours_tree.get_children():
@@ -497,46 +693,61 @@ class ClientsTab(tk.Frame):
                             "Ce client a déjà un séjour actif. "
                             "Termez-le d'abord avant d'assigner une nouvelle chambre.")
                     else:
-                        db.add_sejour(self.selected_client_id, chambre_id, d_entree)
+                        db.add_sejour(self.selected_client_id, chambre_id, d_entree, d_sortie)
                 messagebox.showinfo("Succès", "Client mis à jour avec succès.")
             else:
                 new_id = db.add_client(data)
                 self.selected_client_id = new_id
                 if chambre_id:
-                    db.add_sejour(new_id, chambre_id, d_entree)
+                    db.add_sejour(new_id, chambre_id, d_entree, d_sortie)
                 messagebox.showinfo("Succès", "Client ajouté avec succès.")
         except ValueError as e:
-            messagebox.showerror("Erreur", str(e))
-            return
+            messagebox.showwarning("Attention", str(e))
 
-        # Create companion if fields are filled
-        comp_nom = self.vars["comp_nom"].get().strip()
-        comp_prenom = self.vars["comp_prenom"].get().strip()
-        comp_cin = self.vars["comp_numero_identifiant"].get().strip()
-        if comp_nom and comp_prenom and comp_cin and chambre_id:
-            existing = db.get_client_by_identifiant(comp_cin)
+        # Create companions from dynamic forms
+        nb_comp = 0
+        for comp in self.comp_forms:
+            cn = comp["nom"].get().strip()
+            cp = comp["prenom"].get().strip()
+            cti = comp["type_identifiant"].get()
+            cnum = comp["numero_identifiant"].get().strip()
+            if not (cn and cp and cnum):
+                continue
+            if not chambre_id:
+                continue
+            cde = comp["date_naissance"].get_date().strftime("%Y-%m-%d") if hasattr(comp["date_naissance"], "get_date") else ""
+            cln = comp["lieu_naissance"].get().strip()
+            cad = comp["adresse"].get().strip()
+            ctel = comp["telephone"].get().strip()
+            cvd = comp["venant_de"].get().strip()
+            caa = comp["allant_a"].get().strip()
+            existing = db.get_client_by_identifiant(cnum)
             if existing:
                 comp_id = existing["id"]
             else:
                 comp_data = {
-                    "nom": comp_nom,
-                    "prenom": comp_prenom,
-                    "type_identifiant": self.vars["comp_type_identifiant"].get(),
-                    "numero_identifiant": comp_cin,
-                    "date_naissance": "",
-                    "lieu_naissance": "",
-                    "adresse": "",
-                    "telephone": self.vars["comp_telephone"].get().strip(),
-                    "venant_de": "",
-                    "allant_a": "",
+                    "nom": cn, "prenom": cp,
+                    "type_identifiant": cti,
+                    "numero_identifiant": cnum,
+                    "date_naissance": cde,
+                    "lieu_naissance": cln,
+                    "adresse": cad,
+                    "telephone": ctel,
+                    "venant_de": cvd,
+                    "allant_a": caa,
                 }
                 comp_id = db.add_client(comp_data)
             active_comp = db.get_sejour_actif_client(comp_id)
             if not active_comp:
-                db.add_sejour(comp_id, chambre_id, d_entree)
-                messagebox.showinfo(
-                    "Compagnon",
-                    f"Compagnon {comp_prenom} {comp_nom} ajouté dans la chambre.")
+                try:
+                    db.add_sejour(comp_id, chambre_id, d_entree, d_sortie)
+                    nb_comp += 1
+                except ValueError as e:
+                    messagebox.showwarning("Compagnon",
+                        f"{cp['prenom']} {cn}: {e}")
+
+        if nb_comp > 0:
+            messagebox.showinfo("Compagnons", f"{nb_comp} compagnon(s) ajouté(s).")
 
         self._refresh_chambre_combo()
         self.refresh()
@@ -726,7 +937,7 @@ class ClientsTab(tk.Frame):
             if active:
                 messagebox.showwarning("Attention", f"{c_prenom} {c_nom} a déjà un séjour actif.", parent=win)
                 return
-            db.add_sejour(comp_id, sejour["chambre_id"], sejour["date_entree"])
+            db.add_sejour(comp_id, sejour["chambre_id"], sejour["date_entree"], sejour["date_sortie"])
             messagebox.showinfo("Succès", f"{c_prenom} {c_nom} ajouté dans la chambre {sejour['chambre_numero']}.", parent=win)
             win.destroy()
             self.refresh()

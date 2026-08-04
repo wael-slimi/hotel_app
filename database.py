@@ -190,6 +190,11 @@ def init_db():
         conn.commit()
     except Exception:
         pass
+    try:
+        cur.execute("ALTER TABLE chambres ADD COLUMN max_personnes INTEGER DEFAULT 1")
+        conn.commit()
+    except Exception:
+        pass
 
     cur.execute(
         """
@@ -361,6 +366,26 @@ def init_db():
         """
     )
 
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS reservation_companions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reservation_id INTEGER NOT NULL,
+            nom TEXT NOT NULL,
+            prenom TEXT NOT NULL,
+            type_identifiant TEXT DEFAULT 'CIN',
+            numero_identifiant TEXT DEFAULT '',
+            date_naissance TEXT DEFAULT '',
+            lieu_naissance TEXT DEFAULT '',
+            adresse TEXT DEFAULT '',
+            telephone TEXT DEFAULT '',
+            venant_de TEXT DEFAULT '',
+            allant_a TEXT DEFAULT '',
+            FOREIGN KEY (reservation_id) REFERENCES reservations(id) ON DELETE CASCADE
+        )
+        """
+    )
+
     conn.commit()
 
     # Si aucune chambre n'existe, on crée un parc de chambres par défaut
@@ -373,15 +398,15 @@ def init_db():
             for i in range(1, 9):
                 numero = f"{etage}-{i}"
                 if i == 1:
-                    type_ch, prix = "Suite", 180.0
+                    type_ch, prix, max_p = "Suite", 180.0, 2
                 elif i == 2:
-                    type_ch, prix = "Double", 120.0
+                    type_ch, prix, max_p = "Double", 120.0, 2
                 else:
-                    type_ch, prix = "Simple", 80.0
-                chambres_defaut.append((numero, type_ch, prix, "Libre", "", ""))
+                    type_ch, prix, max_p = "Simple", 80.0, 1
+                chambres_defaut.append((numero, type_ch, prix, "Libre", "", "", max_p))
         cur.executemany(
-            "INSERT INTO chambres (numero, type, prix, etat, description, photo) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO chambres (numero, type, prix, etat, description, photo, max_personnes) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
             chambres_defaut,
         )
         conn.commit()
@@ -442,6 +467,15 @@ def init_db():
     if rows:
         conn.commit()
 
+    # Migration: set max_personnes based on room type
+    type_capacity = {"Simple": 1, "Double": 2, "Suite": 2, "Familiale": 4}
+    for type_ch, max_p in type_capacity.items():
+        conn.execute(
+            "UPDATE chambres SET max_personnes=? WHERE type=? AND (max_personnes=1 OR max_personnes IS NULL)",
+            (max_p, type_ch)
+        )
+    conn.commit()
+
     conn.close()
 
 
@@ -496,23 +530,23 @@ def get_chambres_libres():
     return rows
 
 
-def add_chambre(numero, type_ch, prix, etat="Libre", description="", photo=""):
+def add_chambre(numero, type_ch, prix, etat="Libre", description="", photo="", max_personnes=1):
     conn = get_connection()
     conn.execute(
-        "INSERT INTO chambres (numero, type, prix, etat, description, photo) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (numero, type_ch, prix, etat, description, photo),
+        "INSERT INTO chambres (numero, type, prix, etat, description, photo, max_personnes) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (numero, type_ch, prix, etat, description, photo, max_personnes),
     )
     conn.commit()
     conn.close()
 
 
-def update_chambre(chambre_id, numero, type_ch, prix, etat, description, photo=""):
+def update_chambre(chambre_id, numero, type_ch, prix, etat, description, photo="", max_personnes=1):
     conn = get_connection()
     conn.execute(
-        "UPDATE chambres SET numero=?, type=?, prix=?, etat=?, description=?, photo=? "
+        "UPDATE chambres SET numero=?, type=?, prix=?, etat=?, description=?, photo=?, max_personnes=? "
         "WHERE id=?",
-        (numero, type_ch, prix, etat, description, photo, chambre_id),
+        (numero, type_ch, prix, etat, description, photo, max_personnes, chambre_id),
     )
     conn.commit()
     conn.close()
@@ -703,13 +737,32 @@ def delete_client(client_id):
 # ---------------------------------------------------------------------------
 # Séjours
 # ---------------------------------------------------------------------------
-def add_sejour(client_id, chambre_id, date_entree):
+def add_sejour(client_id, chambre_id, date_entree, date_sortie=None, skip_capacity_check=False):
     conn = get_connection()
     cur = conn.cursor()
+
+    # Capacity check
+    if not skip_capacity_check:
+        chambre = cur.execute(
+            "SELECT max_personnes FROM chambres WHERE id=?", (chambre_id,)
+        ).fetchone()
+        if chambre:
+            max_p = chambre["max_personnes"] or 1
+            nb_actuels = cur.execute(
+                "SELECT COUNT(*) AS n FROM sejours WHERE chambre_id=? AND statut='En cours'",
+                (chambre_id,)
+            ).fetchone()["n"]
+            if nb_actuels >= max_p:
+                conn.close()
+                raise ValueError(
+                    f"La chambre est pleine ({nb_actuels}/{max_p} occupant(s)). "
+                    f"Impossible d'ajouter un autre client.")
+
+    ds = date_sortie or ""
     cur.execute(
-        "INSERT INTO sejours (client_id, chambre_id, date_entree, statut) "
-        "VALUES (?, ?, ?, 'En cours')",
-        (client_id, chambre_id, date_entree),
+        "INSERT INTO sejours (client_id, chambre_id, date_entree, date_sortie, statut) "
+        "VALUES (?, ?, ?, ?, 'En cours')",
+        (client_id, chambre_id, date_entree, ds),
     )
     sejour_id = cur.lastrowid
     already_occupied = cur.execute(
@@ -1339,6 +1392,52 @@ def delete_reservation(reservation_id):
         cur.execute(
             "UPDATE chambres SET etat='Libre' WHERE id=?", (row["chambre_id"],)
         )
+    conn.commit()
+    conn.close()
+
+
+# --- Reservation companions ------------------------------------------------
+
+def add_reservation_companion(reservation_id, data):
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO reservation_companions "
+        "(reservation_id, nom, prenom, type_identifiant, numero_identifiant, "
+        "date_naissance, lieu_naissance, adresse, telephone, venant_de, allant_a) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            reservation_id,
+            data["nom"], data["prenom"],
+            data.get("type_identifiant", "CIN"),
+            data.get("numero_identifiant", ""),
+            data.get("date_naissance", ""),
+            data.get("lieu_naissance", ""),
+            data.get("adresse", ""),
+            data.get("telephone", ""),
+            data.get("venant_de", ""),
+            data.get("allant_a", ""),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_reservation_companions(reservation_id):
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM reservation_companions WHERE reservation_id=?",
+        (reservation_id,),
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+def delete_reservation_companions(reservation_id):
+    conn = get_connection()
+    conn.execute(
+        "DELETE FROM reservation_companions WHERE reservation_id=?",
+        (reservation_id,),
+    )
     conn.commit()
     conn.close()
 
