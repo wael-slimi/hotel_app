@@ -386,6 +386,27 @@ def init_db():
         """
     )
 
+    # --- Migration: add parent_sejour_id to sejours (group linking) ---
+    try:
+        cur.execute("ALTER TABLE sejours ADD COLUMN parent_sejour_id INTEGER REFERENCES sejours(id)")
+        conn.commit()
+    except Exception:
+        pass
+
+    # --- Migration: add missing columns to reservations ---
+    for col, default in [
+        ("date_naissance", ""),
+        ("lieu_naissance", ""),
+        ("adresse", ""),
+        ("venant_de", ""),
+        ("allant_a", ""),
+    ]:
+        try:
+            cur.execute(f"ALTER TABLE reservations ADD COLUMN {col} TEXT DEFAULT '{default}'")
+            conn.commit()
+        except Exception:
+            pass
+
     conn.commit()
 
     # Si aucune chambre n'existe, on crée un parc de chambres par défaut
@@ -737,40 +758,55 @@ def delete_client(client_id):
 # ---------------------------------------------------------------------------
 # Séjours
 # ---------------------------------------------------------------------------
-def add_sejour(client_id, chambre_id, date_entree, date_sortie=None, skip_capacity_check=False):
+def add_sejour(client_id, chambre_id, date_entree, date_sortie=None,
+               parent_sejour_id=None):
+    """Crée un séjour.
+
+    * parent_sejour_id=None  → séjour principal (seul autorisé si chambre Libre).
+    * parent_sejour_id=id    → compagnon du groupe (toujours autorisé si le
+      séjour parent est actif dans la même chambre).
+    """
     conn = get_connection()
     cur = conn.cursor()
 
-    # Capacity check
-    if not skip_capacity_check:
-        chambre = cur.execute(
-            "SELECT max_personnes FROM chambres WHERE id=?", (chambre_id,)
+    chambre = cur.execute(
+        "SELECT max_personnes, etat FROM chambres WHERE id=?", (chambre_id,)
+    ).fetchone()
+
+    if parent_sejour_id is None:
+        # --- Séjour principal : la chambre doit être Libre ---
+        if chambre and chambre["etat"] != "Libre":
+            conn.close()
+            raise ValueError(
+                f"La chambre est déjà occupée. "
+                f"Un groupe ne peut réserver une chambre que lorsqu'elle est Libre.")
+    else:
+        # --- Compagnon : vérifier que le parent est actif dans la même chambre ---
+        parent = cur.execute(
+            "SELECT id, chambre_id, statut FROM sejours WHERE id=?",
+            (parent_sejour_id,),
         ).fetchone()
-        if chambre:
-            max_p = chambre["max_personnes"] or 1
-            nb_actuels = cur.execute(
-                "SELECT COUNT(*) AS n FROM sejours WHERE chambre_id=? AND statut='En cours'",
-                (chambre_id,)
-            ).fetchone()["n"]
-            if nb_actuels >= max_p:
-                conn.close()
-                raise ValueError(
-                    f"La chambre est pleine ({nb_actuels}/{max_p} occupant(s)). "
-                    f"Impossible d'ajouter un autre client.")
+        if not parent or parent["statut"] != "En cours":
+            conn.close()
+            raise ValueError(
+                "Le séjour parent n'existe pas ou est déjà terminé.")
+        if parent["chambre_id"] != chambre_id:
+            conn.close()
+            raise ValueError(
+                "Le séjour parent n'est pas dans la même chambre.")
 
     ds = date_sortie or ""
     cur.execute(
-        "INSERT INTO sejours (client_id, chambre_id, date_entree, date_sortie, statut) "
-        "VALUES (?, ?, ?, ?, 'En cours')",
-        (client_id, chambre_id, date_entree, ds),
+        "INSERT INTO sejours (client_id, chambre_id, date_entree, date_sortie, statut, parent_sejour_id) "
+        "VALUES (?, ?, ?, ?, 'En cours', ?)",
+        (client_id, chambre_id, date_entree, ds, parent_sejour_id),
     )
     sejour_id = cur.lastrowid
-    already_occupied = cur.execute(
-        "SELECT 1 FROM sejours WHERE chambre_id=? AND statut='En cours' AND id!=? LIMIT 1",
-        (chambre_id, sejour_id)
-    ).fetchone()
-    if not already_occupied:
+
+    # Mettre la chambre en Occupée si c'est un séjour principal
+    if parent_sejour_id is None:
         cur.execute("UPDATE chambres SET etat='Occupée' WHERE id=?", (chambre_id,))
+
     conn.commit()
     conn.close()
     return sejour_id
@@ -1301,13 +1337,17 @@ def add_reservation(data):
         """
         INSERT INTO reservations (
             nom, prenom, telephone, type_identifiant, numero_identifiant,
+            date_naissance, lieu_naissance, adresse, venant_de, allant_a,
             chambre_id, date_arrivee, date_depart, nb_personnes, notes, statut,
             client_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             data["nom"], data["prenom"], data["telephone"],
             data["type_identifiant"], data["numero_identifiant"],
+            data.get("date_naissance", ""), data.get("lieu_naissance", ""),
+            data.get("adresse", ""), data.get("venant_de", ""),
+            data.get("allant_a", ""),
             data["chambre_id"], data["date_arrivee"], data["date_depart"],
             data["nb_personnes"], data["notes"], data.get("statut", "RESERVE"),
             data.get("client_id"),
@@ -1345,13 +1385,18 @@ def update_reservation(reservation_id, data):
         """
         UPDATE reservations SET
             nom=?, prenom=?, telephone=?, type_identifiant=?,
-            numero_identifiant=?, chambre_id=?, date_arrivee=?,
+            numero_identifiant=?, date_naissance=?, lieu_naissance=?,
+            adresse=?, venant_de=?, allant_a=?,
+            chambre_id=?, date_arrivee=?,
             date_depart=?, nb_personnes=?, notes=?, statut=?, client_id=?
         WHERE id=?
         """,
         (
             data["nom"], data["prenom"], data["telephone"],
             data["type_identifiant"], data["numero_identifiant"],
+            data.get("date_naissance", ""), data.get("lieu_naissance", ""),
+            data.get("adresse", ""), data.get("venant_de", ""),
+            data.get("allant_a", ""),
             data["chambre_id"], data["date_arrivee"], data["date_depart"],
             data["nb_personnes"], data["notes"], data.get("statut", "RESERVE"),
             data.get("client_id"),

@@ -263,11 +263,6 @@ class ClientsTab(tk.Frame):
                   activebackground=NEUTRE_CLAIR, cursor="hand2",
                   width=10, command=self.imprimer_fiche_police).pack(
             side="left", padx=3)
-        tk.Button(btn_frame2, text="Ajouter Compagnon", bg=SUCCES, fg="white",
-                  font=("Segoe UI", 9, "bold"), bd=0,
-                  activebackground="#059669", activeforeground="white",
-                  cursor="hand2", width=14, command=self.ajouter_compagnon).pack(
-            side="left", padx=3)
 
         # ── Right panel: table card ──────────────────────────────────
         right = tk.Frame(self, bg=BG)
@@ -682,6 +677,7 @@ class ClientsTab(tk.Frame):
                     "La date de sortie doit être après ou égale à la date d'entrée.")
                 return
 
+        primary_sejour_id = None
         try:
             if self.selected_client_id:
                 db.update_client(self.selected_client_id, data)
@@ -693,18 +689,19 @@ class ClientsTab(tk.Frame):
                             "Ce client a déjà un séjour actif. "
                             "Termez-le d'abord avant d'assigner une nouvelle chambre.")
                     else:
-                        db.add_sejour(self.selected_client_id, chambre_id, d_entree, d_sortie)
+                        primary_sejour_id = db.add_sejour(
+                            self.selected_client_id, chambre_id, d_entree, d_sortie)
                 messagebox.showinfo("Succès", "Client mis à jour avec succès.")
             else:
                 new_id = db.add_client(data)
                 self.selected_client_id = new_id
                 if chambre_id:
-                    db.add_sejour(new_id, chambre_id, d_entree, d_sortie)
+                    primary_sejour_id = db.add_sejour(
+                        new_id, chambre_id, d_entree, d_sortie)
                 messagebox.showinfo("Succès", "Client ajouté avec succès.")
         except ValueError as e:
             messagebox.showwarning("Attention", str(e))
 
-        # Create companions from dynamic forms
         nb_comp = 0
         for comp in self.comp_forms:
             cn = comp["nom"].get().strip()
@@ -713,7 +710,7 @@ class ClientsTab(tk.Frame):
             cnum = comp["numero_identifiant"].get().strip()
             if not (cn and cp and cnum):
                 continue
-            if not chambre_id:
+            if not chambre_id or not primary_sejour_id:
                 continue
             cde = comp["date_naissance"].get_date().strftime("%Y-%m-%d") if hasattr(comp["date_naissance"], "get_date") else ""
             cln = comp["lieu_naissance"].get().strip()
@@ -740,7 +737,8 @@ class ClientsTab(tk.Frame):
             active_comp = db.get_sejour_actif_client(comp_id)
             if not active_comp:
                 try:
-                    db.add_sejour(comp_id, chambre_id, d_entree, d_sortie)
+                    db.add_sejour(comp_id, chambre_id, d_entree, d_sortie,
+                                  parent_sejour_id=primary_sejour_id)
                     nb_comp += 1
                 except ValueError as e:
                     messagebox.showwarning("Compagnon",
@@ -937,7 +935,8 @@ class ClientsTab(tk.Frame):
             if active:
                 messagebox.showwarning("Attention", f"{c_prenom} {c_nom} a déjà un séjour actif.", parent=win)
                 return
-            db.add_sejour(comp_id, sejour["chambre_id"], sejour["date_entree"], sejour["date_sortie"])
+            db.add_sejour(comp_id, sejour["chambre_id"], sejour["date_entree"],
+                          sejour["date_sortie"], parent_sejour_id=sejour["id"])
             messagebox.showinfo("Succès", f"{c_prenom} {c_nom} ajouté dans la chambre {sejour['chambre_numero']}.", parent=win)
             win.destroy()
             self.refresh()

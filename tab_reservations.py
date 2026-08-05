@@ -310,6 +310,14 @@ class ReservationsTab(tk.Frame):
             else TYPES_IDENTIFIANT[0])
         num_id_var = tk.StringVar(
             value=reservation["numero_identifiant"] if reservation else "")
+        lieu_naissance_var = tk.StringVar(
+            value=reservation["lieu_naissance"] if reservation else "")
+        adresse_var = tk.StringVar(
+            value=reservation["adresse"] if reservation else "")
+        venant_de_var = tk.StringVar(
+            value=reservation["venant_de"] if reservation else "")
+        allant_a_var = tk.StringVar(
+            value=reservation["allant_a"] if reservation else "")
         notes_var = tk.StringVar(
             value=reservation["notes"] if reservation else "")
         statut_var = tk.StringVar(
@@ -329,6 +337,12 @@ class ReservationsTab(tk.Frame):
                 prenom_var.set(existing["prenom"])
                 tel_var.set(existing["telephone"] or "")
                 type_id_var.set(existing["type_identifiant"])
+                lieu_naissance_var.set(existing["lieu_naissance"] or "")
+                adresse_var.set(existing["adresse"] or "")
+                venant_de_var.set(existing["venant_de"] or "")
+                allant_a_var.set(existing["allant_a"] or "")
+                if existing["date_naissance"]:
+                    res_date_naissance.set(iso_to_date_str(existing["date_naissance"]))
                 _linked_client_id[0] = existing["id"]
                 hint_lbl.config(
                     text=f"Client existant trouvé: {existing['prenom']} {existing['nom']}",
@@ -365,16 +379,29 @@ class ReservationsTab(tk.Frame):
                             fg=TEXT_SECONDARY, font=("Segoe UI", 9, "italic"))
         hint_lbl.grid(row=5, column=2, sticky="w", padx=4, pady=4)
 
+        row(6, "Lieu de naissance", lambda p: entry(p, lieu_naissance_var))
+        row(7, "Adresse", lambda p: entry(p, adresse_var, width=28))
+        row(8, "Venant de", lambda p: entry(p, venant_de_var))
+        row(9, "Allant à", lambda p: entry(p, allant_a_var))
+
+        tk.Label(form_grid, text="Date de naissance", bg=CARD_BG,
+                 fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
+            row=10, column=0, sticky="w", padx=18, pady=4)
+        res_date_naissance = DateEntry(form_grid, width=12)
+        res_date_naissance.grid(row=10, column=1, sticky="w", padx=4, pady=4)
+        if reservation and reservation["date_naissance"]:
+            res_date_naissance.set(iso_to_date_str(reservation["date_naissance"]))
+
         # ── Section: Séjour ─────────────────────────────────────────
         tk.Label(form_grid, text="Détails du séjour", bg=NEUTRE_CLAIR,
                  fg=PRIMAIRE, font=("Segoe UI", 10, "bold"), anchor="w").grid(
-            row=6, column=0, columnspan=2, sticky="ew", padx=14,
+            row=11, column=0, columnspan=2, sticky="ew", padx=14,
             pady=(10, 2), ipady=3)
 
         # Chambre combo
         tk.Label(form_grid, text="Chambre", bg=CARD_BG, fg=TEXT_PRIMARY,
                  font=("Segoe UI", 9)).grid(
-            row=7, column=0, sticky="w", padx=18, pady=4)
+            row=12, column=0, sticky="w", padx=18, pady=4)
         chambres = db.get_chambres()
         chambre_map = {"— Aucune —": None}
         chambre_vals = ["— Aucune —"]
@@ -396,44 +423,44 @@ class ReservationsTab(tk.Frame):
 
         ttk.Combobox(form_grid, textvariable=chambre_var, values=chambre_vals,
                      width=28, state="readonly").grid(
-            row=7, column=1, sticky="w", padx=4, pady=4)
+            row=12, column=1, sticky="w", padx=4, pady=4)
 
         # Dates
         tk.Label(form_grid, text="Date d'arrivée *", bg=CARD_BG,
                  fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
-            row=8, column=0, sticky="w", padx=18, pady=4)
+            row=13, column=0, sticky="w", padx=18, pady=4)
         date_arrivee = DateEntry(form_grid, width=12)
-        date_arrivee.grid(row=8, column=1, sticky="w", padx=4, pady=4)
+        date_arrivee.grid(row=13, column=1, sticky="w", padx=4, pady=4)
         if reservation and reservation["date_arrivee"]:
             date_arrivee.set(iso_to_date_str(reservation["date_arrivee"]))
 
         tk.Label(form_grid, text="Date de départ *", bg=CARD_BG,
                  fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
-            row=9, column=0, sticky="w", padx=18, pady=4)
+            row=14, column=0, sticky="w", padx=18, pady=4)
         date_depart = DateEntry(form_grid, width=12)
-        date_depart.grid(row=9, column=1, sticky="w", padx=4, pady=4)
+        date_depart.grid(row=14, column=1, sticky="w", padx=4, pady=4)
         if reservation and reservation["date_depart"]:
             date_depart.set(iso_to_date_str(reservation["date_depart"]))
 
-        row(10, "Notes", lambda p: entry(p, notes_var, width=30))
+        row(15, "Notes", lambda p: entry(p, notes_var, width=30))
 
         # ── Section: Compagnons ──────────────────────────────────────
         tk.Label(form_grid, text="Compagnons (même chambre)", bg=NEUTRE_CLAIR,
                  fg=PRIMAIRE, font=("Segoe UI", 10, "bold"), anchor="w").grid(
-            row=11, column=0, columnspan=2, sticky="ew", padx=14,
+            row=16, column=0, columnspan=2, sticky="ew", padx=14,
             pady=(10, 2), ipady=3)
 
         tk.Label(form_grid, text="Nombre d'accompagnants", bg=CARD_BG,
                  fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
-            row=12, column=0, sticky="w", padx=18, pady=4)
+            row=17, column=0, sticky="w", padx=18, pady=4)
         comp_count_var = tk.StringVar(value="0")
         comp_count_combo = ttk.Combobox(
             form_grid, textvariable=comp_count_var,
             values=["0", "1", "2", "3"], width=22, state="readonly")
-        comp_count_combo.grid(row=12, column=1, sticky="w", padx=4, pady=4)
+        comp_count_combo.grid(row=17, column=1, sticky="w", padx=4, pady=4)
 
         comp_container = tk.Frame(form_grid, bg=CARD_BG)
-        comp_container.grid(row=13, column=0, columnspan=2, sticky="ew",
+        comp_container.grid(row=18, column=0, columnspan=2, sticky="ew",
                             padx=14, pady=(0, 6))
         comp_forms = []
 
@@ -618,6 +645,11 @@ class ReservationsTab(tk.Frame):
                 "telephone": tel_var.get().strip(),
                 "type_identifiant": type_id_var.get(),
                 "numero_identifiant": num_id_var.get().strip(),
+                "date_naissance": res_date_naissance.get_date().strftime("%Y-%m-%d") if hasattr(res_date_naissance, "get_date") else "",
+                "lieu_naissance": lieu_naissance_var.get().strip(),
+                "adresse": adresse_var.get().strip(),
+                "venant_de": venant_de_var.get().strip(),
+                "allant_a": allant_a_var.get().strip(),
                 "chambre_id": chambre_map.get(chambre_var.get()),
                 "date_arrivee": d_arr, "date_depart": d_dep,
                 "nb_personnes": nb_personnes,
@@ -757,6 +789,9 @@ class ReservationsTab(tk.Frame):
             messagebox.showerror("Erreur",
                                  "Aucune chambre associée à cette réservation.")
             return
+        if r["statut"] == "CHECKED_IN":
+            messagebox.showinfo("Info", "Cette réservation est déjà enregistrée.")
+            return
 
         client = None
         try:
@@ -779,12 +814,12 @@ class ReservationsTab(tk.Frame):
                 "prenom": r["prenom"],
                 "type_identifiant": r["type_identifiant"],
                 "numero_identifiant": r["numero_identifiant"] or "",
-                "date_naissance": "",
-                "lieu_naissance": "",
-                "adresse": "",
+                "date_naissance": r["date_naissance"] or "",
+                "lieu_naissance": r["lieu_naissance"] or "",
+                "adresse": r["adresse"] or "",
                 "telephone": r["telephone"] or "",
-                "venant_de": "",
-                "allant_a": "",
+                "venant_de": r["venant_de"] or "",
+                "allant_a": r["allant_a"] or "",
             })
             client = db.get_client(client_id)
 
@@ -795,13 +830,6 @@ class ReservationsTab(tk.Frame):
                                  f"un séjour actif en chambre {active['chambre_numero']}.")
             return
 
-        if not messagebox.askyesno(
-                "Confirmer le Check-in",
-                f"Confirmer l'arrivée de {client['prenom']} {client['nom']} "
-                f"en chambre {r['chambre_numero']} ?"):
-            return
-
-        # Pre-validate: count primary + valid companions vs room capacity
         companions = db.get_reservation_companions(r["id"])
         valid_companions = []
         for cp in companions:
@@ -824,53 +852,155 @@ class ReservationsTab(tk.Frame):
                 f"mais il y a déjà {nb_actuels} occupant(s).")
             return
 
-        try:
-            db.add_sejour(client["id"], r["chambre_id"],
-                          date.today().strftime("%Y-%m-%d"),
-                          r["date_depart"])
-        except Exception as e:
-            messagebox.showerror("Erreur", str(e))
+        people = [{"type": "primary", "data": r, "confirmed": False, "sejour_id": None}]
+        for cp in valid_companions:
+            people.append({"type": "companion", "data": cp, "confirmed": False, "sejour_id": None})
+
+        if len(people) == 1:
+            try:
+                db.add_sejour(client["id"], r["chambre_id"],
+                              date.today().strftime("%Y-%m-%d"),
+                              r["date_depart"])
+            except Exception as e:
+                messagebox.showerror("Erreur", str(e))
+                return
+            db.update_reservation(self.selected_reservation_id, {
+                **dict(r), "statut": "CHECKED_IN", "client_id": client["id"],
+            })
+            self.selected_reservation_id = None
+            self.refresh()
+            self.app.refresh_rooms_tab()
+            self.app.refresh_clients_tab()
+            messagebox.showinfo("Check-in effectué",
+                                f"{client['prenom']} {client['nom']} enregistré(e) "
+                                f"en chambre {r['chambre_numero']}.")
             return
 
-        # Create companion clients + sejours (capacity already validated)
-        nb_comp_created = 0
-        for cp in valid_companions:
-            cnum = cp["numero_identifiant"].strip()
-            existing = db.get_client_by_identifiant(cnum)
-            if existing:
-                comp_id = existing["id"]
-            else:
-                comp_id = db.add_client({
-                    "nom": cp["nom"], "prenom": cp["prenom"],
-                    "type_identifiant": cp["type_identifiant"],
-                    "numero_identifiant": cnum,
-                    "date_naissance": cp["date_naissance"],
-                    "lieu_naissance": cp["lieu_naissance"],
-                    "adresse": cp["adresse"],
-                    "telephone": cp["telephone"],
-                    "venant_de": cp["venant_de"],
-                    "allant_a": cp["allant_a"],
+        win = tk.Toplevel(self)
+        win.title("Check-in — Confirmation")
+        win.resizable(False, False)
+        win.transient(self)
+        win.grab_set()
+        win.configure(bg=CARD_BG)
+
+        tk.Label(win,
+                 text=f"Check-in — Chambre {r['chambre_numero']}",
+                 bg=CARD_BG, fg=TEXT_PRIMARY,
+                 font=("Segoe UI", 13, "bold")).pack(pady=(14, 4), padx=16)
+        tk.Label(win,
+                 text="Confirmez l'arrivée de chaque personne séparément.",
+                 bg=CARD_BG, fg=TEXT_SECONDARY,
+                 font=("Segoe UI", 9)).pack(padx=16)
+
+        frame = tk.Frame(win, bg=CARD_BG)
+        frame.pack(fill="x", padx=16, pady=10)
+
+        status_labels = []
+        confirm_buttons = []
+        primary_sejour_id = [None]
+
+        def _do_confirm(idx):
+            p = people[idx]
+            if p["confirmed"]:
+                return
+            if p["type"] == "companion" and not people[0]["confirmed"]:
+                messagebox.showwarning("Attention",
+                                       "Le client principal doit d'abord confirmer.",
+                                       parent=win)
+                return
+            try:
+                if p["type"] == "primary":
+                    sid = db.add_sejour(client["id"], r["chambre_id"],
+                                        date.today().strftime("%Y-%m-%d"),
+                                        r["date_depart"])
+                else:
+                    cp_data = p["data"]
+                    cnum = cp_data["numero_identifiant"].strip()
+                    existing = db.get_client_by_identifiant(cnum)
+                    if existing:
+                        comp_id = existing["id"]
+                    else:
+                        comp_id = db.add_client({
+                            "nom": cp_data["nom"], "prenom": cp_data["prenom"],
+                            "type_identifiant": cp_data["type_identifiant"],
+                            "numero_identifiant": cnum,
+                            "date_naissance": cp_data["date_naissance"],
+                            "lieu_naissance": cp_data["lieu_naissance"],
+                            "adresse": cp_data["adresse"],
+                            "telephone": cp_data["telephone"],
+                            "venant_de": cp_data["venant_de"],
+                            "allant_a": cp_data["allant_a"],
+                        })
+                    sid = db.add_sejour(comp_id, r["chambre_id"],
+                                        date.today().strftime("%Y-%m-%d"),
+                                        r["date_depart"],
+                                        parent_sejour_id=primary_sejour_id[0])
+                p["confirmed"] = True
+                p["sejour_id"] = sid
+                if p["type"] == "primary":
+                    primary_sejour_id[0] = sid
+                status_labels[idx].config(text="Confirmé", fg=SUCCES)
+                confirm_buttons[idx].config(state="disabled", bg=TEXT_SECONDARY)
+                _check_done()
+            except ValueError as e:
+                messagebox.showerror("Erreur", str(e), parent=win)
+
+        headers = ["#", "Nom complet", "Type", "N° ID", "Statut", ""]
+        for c, h in enumerate(headers):
+            tk.Label(frame, text=h, bg=PRIMAIRE, fg="white",
+                     font=("Segoe UI", 9, "bold"), padx=6, pady=4
+                     ).grid(row=0, column=c, sticky="ew", padx=1)
+
+        for i, p in enumerate(people):
+            row = i + 1
+            c = p["data"]
+            full_name = f"{c['prenom']} {c['nom']}"
+            id_type = c.get("type_identifiant", "")
+            id_num = c.get("numero_identifiant", "")
+
+            tk.Label(frame, text=str(row), bg=CARD_BG, fg=TEXT_PRIMARY,
+                     font=("Segoe UI", 9), padx=6, pady=4
+                     ).grid(row=row, column=0, sticky="ew", padx=1)
+            tk.Label(frame, text=full_name, bg=CARD_BG, fg=TEXT_PRIMARY,
+                     font=("Segoe UI", 9, "bold"), padx=6, pady=4, anchor="w"
+                     ).grid(row=row, column=1, sticky="ew", padx=1)
+            tk.Label(frame, text=id_type, bg=CARD_BG, fg=TEXT_SECONDARY,
+                     font=("Segoe UI", 9), padx=6, pady=4
+                     ).grid(row=row, column=2, sticky="ew", padx=1)
+            tk.Label(frame, text=id_num, bg=CARD_BG, fg=TEXT_SECONDARY,
+                     font=("Segoe UI", 9), padx=6, pady=4
+                     ).grid(row=row, column=3, sticky="ew", padx=1)
+            sl = tk.Label(frame, text="En attente", bg=CARD_BG, fg=ATTENTION,
+                          font=("Segoe UI", 9, "bold"), padx=6, pady=4)
+            sl.grid(row=row, column=4, sticky="ew", padx=1)
+            status_labels.append(sl)
+            btn = tk.Button(frame, text="Confirmer", bg=SUCCES, fg="white",
+                            font=("Segoe UI", 9, "bold"), bd=0, cursor="hand2",
+                            command=lambda idx=i: _do_confirm(idx))
+            btn.grid(row=row, column=5, padx=4, pady=4)
+            confirm_buttons.append(btn)
+
+        for c in range(6):
+            frame.columnconfigure(c, weight=1)
+
+        _done_var = tk.BooleanVar(value=False)
+
+        def _check_done():
+            if all(p["confirmed"] for p in people):
+                _done_var.set(True)
+
+        def _close():
+            if _done_var.get():
+                db.update_reservation(self.selected_reservation_id, {
+                    **dict(r), "statut": "CHECKED_IN", "client_id": client["id"],
                 })
-            active_comp = db.get_sejour_actif_client(comp_id)
-            if not active_comp:
-                db.add_sejour(comp_id, r["chambre_id"],
-                              date.today().strftime("%Y-%m-%d"),
-                              r["date_depart"],
-                              skip_capacity_check=True)
-                nb_comp_created += 1
+            self.refresh()
+            self.app.refresh_rooms_tab()
+            self.app.refresh_clients_tab()
+            win.destroy()
 
-        update_data = dict(r)
-        update_data["statut"] = "CHECKED_IN"
-        update_data["client_id"] = client["id"]
-        db.update_reservation(self.selected_reservation_id, update_data)
+        win.protocol("WM_DELETE_WINDOW", _close)
 
-        msg = (f"{client['prenom']} {client['nom']} est maintenant enregistré(e) "
-               f"en chambre {r['chambre_numero']}.")
-        if nb_comp_created > 0:
-            msg += f"\n\n{nb_comp_created} compagnon(s) ajouté(s)."
-
-        self.selected_reservation_id = None
-        self.refresh()
-        self.app.refresh_rooms_tab()
-        self.app.refresh_clients_tab()
-        messagebox.showinfo("Check-in effectué", msg)
+        tk.Button(win, text="Fermer", bg=PRIMAIRE, fg="white",
+                  font=("Segoe UI", 9, "bold"), bd=0, cursor="hand2",
+                  width=14, command=_close).pack(pady=(6, 14))
