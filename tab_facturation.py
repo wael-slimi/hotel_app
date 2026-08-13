@@ -398,15 +398,24 @@ class FacturationTab(tk.Frame):
                     self.facture_id_map[texte] = f["id"]
                     break
 
+        # Hide fully paid stays from the dropdown
+        valeurs_non_payees = [t for t in valeurs if self.paiements.get(t) is not True]
+        if self.client_var.get() not in valeurs_non_payees:
+            self.client_var.set("")
+            self.chambre_label_var.set("-")
+        self.combo_client["values"] = valeurs_non_payees
+
     def search_by_cin(self):
         cin = self.cin_search_var.get().strip()
+        valeurs_non_payees = [t for t in self.client_map.keys()
+                              if self.paiements.get(t) is not True]
         if not cin:
-            self.combo_client["values"] = list(self.client_map.keys())
+            self.combo_client["values"] = valeurs_non_payees
             self.client_var.set("")
             self.chambre_label_var.set("-")
             return
-        resultats = [texte for texte, c in self.client_map.items()
-                     if cin.lower() in str(c.get("numero_identifiant", "")).lower()]
+        resultats = [texte for texte in valeurs_non_payees
+                     if cin.lower() in str(self.client_map[texte].get("numero_identifiant", "")).lower()]
         self.combo_client["values"] = resultats
         if len(resultats) == 1:
             self.client_var.set(resultats[0])
