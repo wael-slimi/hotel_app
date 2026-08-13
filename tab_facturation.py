@@ -165,6 +165,9 @@ class FacturationTab(tk.Frame):
         self.tree.tag_configure("non_paye", foreground=DANGER)
         self.tree.tag_configure("partiel", foreground=ATTENTION)
 
+        # Double-click to edit prix unitaire
+        self.tree.bind("<Double-1>", self._on_tree_double_click)
+
         # Empty state label
         self.empty_label = tk.Label(tree_frame, text="Aucune ligne ajoutée",
                                     bg=CARD_BG, fg=TEXT_SECONDARY,
@@ -228,7 +231,7 @@ class FacturationTab(tk.Frame):
         c3_inner.pack(fill="x", padx=20, pady=(0, 14))
 
         # Row 0: Remise + Mode paiement
-        tk.Label(c3_inner, text="Remise (TND)", bg=CARD_BG, fg=TEXT_PRIMARY,
+        tk.Label(c3_inner, text="Remise (%)", bg=CARD_BG, fg=TEXT_PRIMARY,
                  font=("Segoe UI", 9)).grid(
             row=0, column=0, sticky="w", padx=(0, 8), pady=4)
         self.remise_var = tk.StringVar(value="0,000")
@@ -248,7 +251,7 @@ class FacturationTab(tk.Frame):
                      width=16, state="readonly").grid(
             row=0, column=3, sticky="w", pady=4)
 
-        # Row 1: Total KPI card + Payer button
+        # Row 1: Total KPI cards + Payer button
         total_card = tk.Frame(c3_inner, bg=PRIMAIRE, bd=0)
         total_card.grid(row=1, column=0, columnspan=2, sticky="w",
                         padx=(0, 12), pady=6, ipadx=16, ipady=8)
@@ -256,6 +259,11 @@ class FacturationTab(tk.Frame):
                  font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=4, pady=(4, 0))
         self.tva_var = tk.StringVar(value="0.000 TND")
         tk.Label(total_card, textvariable=self.tva_var, bg=PRIMAIRE, fg="#E0E7FF",
+                 font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=4)
+        tk.Label(total_card, text="Timbre Fiscal", bg=PRIMAIRE, fg="#C7D2FE",
+                 font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=4, pady=(4, 0))
+        self.tf_var = tk.StringVar(value="1.000 TND")
+        tk.Label(total_card, textvariable=self.tf_var, bg=PRIMAIRE, fg="#E0E7FF",
                  font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=4)
         tk.Label(total_card, text="TOTAL TTC", bg=PRIMAIRE, fg="white",
                  font=("Segoe UI", 14, "bold")).pack(anchor="w", padx=4, pady=(2, 0))
@@ -555,18 +563,83 @@ class FacturationTab(tk.Frame):
         del self.lignes[index]
         self.refresh_lignes()
 
+    def _on_tree_double_click(self, event):
+        if self._verifier_paye():
+            return
+        region = self.tree.identify("region", event.x, event.y)
+        if region != "cell":
+            return
+        col = self.tree.identify_column(event.x)
+        # col="#3" is the prix column
+        if col != "#3":
+            return
+        selection = self.tree.selection()
+        if not selection:
+            return
+        index = int(selection[0])
+        if index >= len(self.lignes):
+            return
+        ligne = self.lignes[index]
+        old_val = ligne["prix_unitaire"]
+
+        win = tk.Toplevel(self)
+        win.title("Modifier le prix unitaire")
+        win.resizable(False, False)
+        win.transient(self)
+        win.grab_set()
+        win.configure(bg=CARD_BG)
+
+        tk.Label(win, text="Prix unitaire (TND)", bg=CARD_BG, fg=TEXT_PRIMARY,
+                 font=("Segoe UI", 10, "bold")).pack(pady=(14, 4), padx=16)
+        tk.Label(win, text=ligne["description"], bg=CARD_BG, fg=TEXT_SECONDARY,
+                 font=("Segoe UI", 9)).pack(padx=16)
+
+        var = tk.StringVar(value=f"{old_val:.3f}".replace(".", ","))
+        entry = tk.Entry(win, textvariable=var, width=16,
+                         font=("Segoe UI", 11), bd=1, relief="solid",
+                         highlightbackground=CARD_BORDER, justify="center")
+        entry.pack(padx=16, pady=8)
+        entry.select_range(0, "end")
+        entry.focus()
+
+        def _save():
+            try:
+                new_val = float(var.get().replace(",", "."))
+                if new_val < 0:
+                    raise ValueError
+            except ValueError:
+                messagebox.showerror("Erreur", "Prix invalide.", parent=win)
+                return
+            self.lignes[index]["prix_unitaire"] = new_val
+            self.refresh_lignes()
+            win.destroy()
+
+        btn_frame = tk.Frame(win, bg=CARD_BG)
+        btn_frame.pack(pady=10)
+        tk.Button(btn_frame, text="Valider", bg=SUCCES, fg="white",
+                  font=("Segoe UI", 9, "bold"), bd=0, cursor="hand2",
+                  width=12, command=_save).pack(side="left", padx=6)
+        tk.Button(btn_frame, text="Annuler", bg=CARD_BG, fg=TEXT_PRIMARY,
+                  font=("Segoe UI", 9), bd=1, relief="solid", cursor="hand2",
+                  width=12, command=win.destroy).pack(side="left", padx=6)
+
+        win.bind("<Return>", lambda e: _save())
+
     def update_total(self):
         sous_total = sum(l["quantite"] * l["prix_unitaire"] for l in self.lignes)
         try:
-            remise = float(self.remise_var.get().replace(",", "."))
+            remise_pct = float(self.remise_var.get().replace(",", "."))
         except ValueError:
-            remise = 0.0
-        montant_ht = round(sous_total - remise, 3)
+            remise_pct = 0.0
+        remise_amount = round(sous_total * remise_pct / 100, 3) if remise_pct else 0.0
+        montant_ht = round(sous_total - remise_amount, 3)
         if montant_ht < 0:
             montant_ht = 0.0
         tva = round(montant_ht * 0.07, 3)
-        total = round(montant_ht + tva, 3)
+        tf = 1.0
+        total = round(montant_ht + tva + tf, 3)
         self.tva_var.set(f"{tva:.3f} TND")
+        self.tf_var.set(f"{tf:.3f} TND")
         self.total_var.set(f"{total:.3f} TND")
         if total > 0:
             self.lettres_var.set(
@@ -661,6 +734,7 @@ class FacturationTab(tk.Frame):
             chambre_numero=client.get("chambre_numero", ""),
             venant_de=client.get("venant_de", ""),
             allant_a=client.get("allant_a", ""),
+            timbre_fiscal=1.0,
         )
 
         self.derniere_facture_id = facture_id
@@ -1220,6 +1294,7 @@ class FacturationTab(tk.Frame):
                 chambre_numero=client.get("chambre_numero", ""),
                 venant_de=client.get("venant_de", ""),
                 allant_a=client.get("allant_a", ""),
+                timbre_fiscal=1.0,
             )
             self.facture_id_map[texte] = facture_id
 

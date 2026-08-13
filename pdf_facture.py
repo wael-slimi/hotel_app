@@ -144,14 +144,18 @@ def generer_facture_pdf(facture_id, chemin_pdf):
             f"{ligne['montant']:.3f}",
         ])
 
-    if facture["remise"]:
-        data.append(["Remise", "", "", f"-{facture['remise']:.3f}"])
+    remise_pct = float(facture["remise"] or 0)
+    if remise_pct:
+        data.append([f"Remise ({remise_pct:.1f}%)", "", "", ""])
 
     montant_ht = float(facture["montant_ht"] or 0)
     tva_val = float(facture["tva"] or 0)
+    tf_val = float(facture.get("timbre_fiscal", 1.0) or 0)
     if montant_ht > 0 or tva_val > 0:
         data.append(["", "", "HT", f"{montant_ht:.3f} TND"])
         data.append(["", "", "TVA (7%)", f"{tva_val:.3f} TND"])
+    if tf_val:
+        data.append(["", "", "Timbre Fiscal", f"{tf_val:.3f} TND"])
 
     data.append(["", "", "TOTAL TTC", f"{facture['montant_total']:.3f} TND"])
 

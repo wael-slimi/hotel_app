@@ -407,6 +407,13 @@ def init_db():
         except Exception:
             pass
 
+    # --- Migration: add timbre_fiscal to factures ---
+    try:
+        cur.execute("ALTER TABLE factures ADD COLUMN timbre_fiscal REAL DEFAULT 1.0")
+        conn.commit()
+    except Exception:
+        pass
+
     conn.commit()
 
     # Si aucune chambre n'existe, on crée un parc de chambres par défaut
@@ -980,11 +987,14 @@ def create_facture(client_id, date_facture, date_entree, date_sortie,
                     nom_client="", sejour_id=None,
                     type_identifiant="", numero_identifiant="",
                     adresse="", chambre_numero="",
-                    venant_de="", allant_a=""):
+                    venant_de="", allant_a="",
+                    timbre_fiscal=1.0):
     """
     lignes: liste de tuples (description, quantite, prix_unitaire)
     Retourne (facture_id, numero, montant_total)
-    TVA = 7% appliquée après remise: TTC = (sous_total - remise) * 1.07
+    remise: pourcentage (%) appliqué sur le sous-total
+    TVA = 7% appliquée après remise
+    TTC = HT + TVA + timbre_fiscal
     """
     sous_total = 0.0
     lignes_calc = []
@@ -992,11 +1002,14 @@ def create_facture(client_id, date_facture, date_entree, date_sortie,
         montant = round(float(quantite) * float(prix_unitaire), 3)
         sous_total += montant
         lignes_calc.append((description, quantite, prix_unitaire, montant))
-    montant_ht = round(sous_total - float(remise or 0), 3)
+    remise_pct = float(remise or 0)
+    remise_amount = round(sous_total * remise_pct / 100, 3) if remise_pct else 0.0
+    montant_ht = round(sous_total - remise_amount, 3)
     if montant_ht < 0:
         montant_ht = 0.0
     tva = round(montant_ht * 0.07, 3)
-    montant_total = round(montant_ht + tva, 3)
+    tf = float(timbre_fiscal or 0)
+    montant_total = round(montant_ht + tva + tf, 3)
 
     numero = get_next_numero_facture()
 
@@ -1008,13 +1021,13 @@ def create_facture(client_id, date_facture, date_entree, date_sortie,
                                date_entree, date_sortie, nb_nuits, montant_total,
                                remise, mode_paiement, sejour_id, montant_ht, tva,
                                type_identifiant, numero_identifiant, adresse,
-                               chambre_numero, venant_de, allant_a)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               chambre_numero, venant_de, allant_a, timbre_fiscal)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (numero, client_id, nom_client, date_facture, date_entree, date_sortie,
-         nb_nuits, montant_total, remise, mode_paiement, sejour_id,
+         nb_nuits, montant_total, remise_pct, mode_paiement, sejour_id,
          montant_ht, tva, type_identifiant, numero_identifiant, adresse,
-         chambre_numero, venant_de, allant_a),
+         chambre_numero, venant_de, allant_a, tf),
     )
     facture_id = cur.lastrowid
 

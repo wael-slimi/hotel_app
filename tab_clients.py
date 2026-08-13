@@ -182,10 +182,11 @@ class ClientsTab(tk.Frame):
                  fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
             row=r, column=0, sticky="w", padx=18, pady=3)
         self.comp_count_var = tk.StringVar(value="0")
-        self.comp_count_combo = ttk.Combobox(
+        self.comp_count_entry = tk.Entry(
             form_grid, textvariable=self.comp_count_var,
-            values=["0", "1", "2", "3"], width=21, state="readonly")
-        self.comp_count_combo.grid(row=r, column=1, sticky="w", padx=4, pady=3)
+            width=23, font=("Segoe UI", 9), bd=1, relief="solid",
+            highlightbackground=CARD_BORDER)
+        self.comp_count_entry.grid(row=r, column=1, sticky="w", padx=4, pady=3)
         self.comp_count_var.trace_add("write", lambda *a: self._rebuild_compagnon_forms())
         r += 1
 
@@ -352,6 +353,7 @@ class ClientsTab(tk.Frame):
             nb = int(self.comp_count_var.get())
         except ValueError:
             nb = 0
+        nb = max(0, min(nb, 20))
 
         for i in range(nb):
             frame = tk.LabelFrame(self.comp_container,
@@ -823,6 +825,7 @@ class ClientsTab(tk.Frame):
             chambre_numero=chambre["numero"] if chambre else "",
             venant_de=client.get("venant_de", ""),
             allant_a=client.get("allant_a", ""),
+            timbre_fiscal=1.0,
         )
         if messagebox.askyesno(
                 "Facture générée",

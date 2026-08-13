@@ -454,10 +454,11 @@ class ReservationsTab(tk.Frame):
                  fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
             row=17, column=0, sticky="w", padx=18, pady=4)
         comp_count_var = tk.StringVar(value="0")
-        comp_count_combo = ttk.Combobox(
+        comp_count_entry = tk.Entry(
             form_grid, textvariable=comp_count_var,
-            values=["0", "1", "2", "3"], width=22, state="readonly")
-        comp_count_combo.grid(row=17, column=1, sticky="w", padx=4, pady=4)
+            width=24, font=("Segoe UI", 9), bd=1, relief="solid",
+            highlightbackground=CARD_BORDER)
+        comp_count_entry.grid(row=17, column=1, sticky="w", padx=4, pady=4)
 
         comp_container = tk.Frame(form_grid, bg=CARD_BG)
         comp_container.grid(row=18, column=0, columnspan=2, sticky="ew",
@@ -483,6 +484,7 @@ class ReservationsTab(tk.Frame):
                 nb = int(comp_count_var.get())
             except ValueError:
                 nb = 0
+            nb = max(0, min(nb, 20))
             for i in range(nb):
                 frame = tk.LabelFrame(comp_container,
                                       text=f"Compagnon {i + 1}",
