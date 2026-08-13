@@ -124,6 +124,12 @@ def generer_facture_pdf(facture_id, chemin_pdf):
         ["Date de départ :", iso_to_date_str(facture["date_sortie"]) or facture["date_sortie"]],
         ["Nombre de nuits :", str(facture["nb_nuits"])],
     ]
+
+    societe = facture["societe"] if "societe" in facture.keys() else ""
+    societe_mat = facture["societe_matricule"] if "societe_matricule" in facture.keys() else ""
+    if societe:
+        info_client.append(["Pris en charge par :", societe])
+        info_client.append(["Matricule fiscal société :", societe_mat])
     client_table = Table(info_client, colWidths=[40 * mm, 130 * mm])
     client_table.setStyle(TableStyle([
         ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
@@ -317,14 +323,19 @@ def generer_fiche_police(client):
     # Section Séjour
     story.append(Paragraph("  INFORMATIONS DU SÉJOUR", section_style))
     story.append(Spacer(1, 4))
-    t3 = Table([
+    sejour_rows = [
         ligne("Chambre N°", client.get("chambre_numero")),
         ligne("Date d'entrée", iso_to_date_str(client.get("date_entree", "")) or "—"),
         ligne("Date de sortie", iso_to_date_str(client.get("date_sortie", "")) or "—"),
         ligne("Venant de", client.get("venant_de")),
         ligne("Allant à", client.get("allant_a")),
         ligne("Statut", client.get("statut")),
-    ], colWidths=[55*mm, 120*mm])
+    ]
+    societe_fc = client.get("societe", "") if isinstance(client, dict) else ""
+    if societe_fc:
+        sejour_rows.append(ligne("Pris en charge par", societe_fc))
+        sejour_rows.append(ligne("Matricule fiscal société", client.get("societe_matricule", "")))
+    t3 = Table(sejour_rows, colWidths=[55*mm, 120*mm])
     t3.setStyle(TableStyle([
         ("ROWBACKGROUNDS", (0, 0), (-1, -1), [GRIS, colors.white]),
         ("GRID", (0, 0), (-1, -1), 0.3, colors.lightgrey),

@@ -343,6 +343,11 @@ class ReservationsTab(tk.Frame):
                 allant_a_var.set(existing["allant_a"] or "")
                 if existing["date_naissance"]:
                     res_date_naissance.set(iso_to_date_str(existing["date_naissance"]))
+                societe = existing["societe"] if "societe" in existing.keys() else ""
+                societe_mat = existing["societe_matricule"] if "societe_matricule" in existing.keys() else ""
+                societe_paiement_var.set(bool(societe))
+                societe_nom_var.set(societe or "")
+                societe_mat_var.set(societe_mat or "")
                 _linked_client_id[0] = existing["id"]
                 hint_lbl.config(
                     text=f"Client existant trouvé: {existing['prenom']} {existing['nom']}",
@@ -391,6 +396,36 @@ class ReservationsTab(tk.Frame):
         res_date_naissance.grid(row=10, column=1, sticky="w", padx=4, pady=4)
         if reservation and reservation["date_naissance"]:
             res_date_naissance.set(iso_to_date_str(reservation["date_naissance"]))
+
+        # ── Section: Prise en charge par société ──────────────────
+        tk.Label(form_grid, text="Prise en charge par société", bg=NEUTRE_CLAIR,
+                 fg=PRIMAIRE, font=("Segoe UI", 10, "bold"), anchor="w").grid(
+            row=11, column=0, columnspan=2, sticky="ew", padx=14,
+            pady=(10, 2), ipady=3)
+
+        societe_paiement_var = tk.BooleanVar(
+            value=bool(reservation and reservation.get("societe", "")))
+        tk.Checkbutton(form_grid, text="Prise en charge par une société",
+                       variable=societe_paiement_var, bg=CARD_BG,
+                       fg=TEXT_PRIMARY, font=("Segoe UI", 9),
+                       selectcolor=CARD_BG, activebackground=CARD_BG).grid(
+            row=12, column=0, columnspan=2, sticky="w", padx=18, pady=3)
+
+        tk.Label(form_grid, text="Nom de la société", bg=CARD_BG,
+                 fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
+            row=13, column=0, sticky="w", padx=18, pady=4)
+        societe_nom_var = tk.StringVar(
+            value=reservation["societe"] if reservation and "societe" in reservation.keys() else "")
+        entry(form_grid, societe_nom_var, width=28).grid(
+            row=13, column=1, sticky="w", padx=4, pady=4)
+
+        tk.Label(form_grid, text="Matricule fiscal", bg=CARD_BG,
+                 fg=TEXT_PRIMARY, font=("Segoe UI", 9)).grid(
+            row=14, column=0, sticky="w", padx=18, pady=4)
+        societe_mat_var = tk.StringVar(
+            value=reservation["societe_matricule"] if reservation and "societe_matricule" in reservation.keys() else "")
+        entry(form_grid, societe_mat_var, width=28).grid(
+            row=14, column=1, sticky="w", padx=4, pady=4)
 
         # ── Section: Séjour ─────────────────────────────────────────
         tk.Label(form_grid, text="Détails du séjour", bg=NEUTRE_CLAIR,
@@ -658,6 +693,8 @@ class ReservationsTab(tk.Frame):
                 "notes": notes_var.get().strip(),
                 "statut": statut_var.get(),
                 "client_id": _linked_client_id[0],
+                "societe": societe_nom_var.get().strip() if societe_paiement_var.get() else "",
+                "societe_matricule": societe_mat_var.get().strip() if societe_paiement_var.get() else "",
             }
 
             chambre_id = data["chambre_id"]
@@ -822,6 +859,8 @@ class ReservationsTab(tk.Frame):
                 "telephone": r["telephone"] or "",
                 "venant_de": r["venant_de"] or "",
                 "allant_a": r["allant_a"] or "",
+                "societe": r["societe"] if "societe" in r.keys() else "",
+                "societe_matricule": r["societe_matricule"] if "societe_matricule" in r.keys() else "",
             })
             client = db.get_client(client_id)
 

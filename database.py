@@ -414,6 +414,30 @@ def init_db():
     except Exception:
         pass
 
+    # --- Migration: add societeprise en charge to clients ---
+    for col in ("societe", "societe_matricule"):
+        try:
+            cur.execute(f"ALTER TABLE clients ADD COLUMN {col} TEXT DEFAULT ''")
+            conn.commit()
+        except Exception:
+            pass
+
+    # --- Migration: add societeprise en charge to reservations ---
+    for col in ("societe", "societe_matricule"):
+        try:
+            cur.execute(f"ALTER TABLE reservations ADD COLUMN {col} TEXT DEFAULT ''")
+            conn.commit()
+        except Exception:
+            pass
+
+    # --- Migration: add societeprise en charge to factures ---
+    for col in ("societe", "societe_matricule"):
+        try:
+            cur.execute(f"ALTER TABLE factures ADD COLUMN {col} TEXT DEFAULT ''")
+            conn.commit()
+        except Exception:
+            pass
+
     conn.commit()
 
     # Si aucune chambre n'existe, on crée un parc de chambres par défaut
@@ -692,8 +716,8 @@ def add_client(data):
         INSERT INTO clients (
             nom, prenom, type_identifiant, numero_identifiant,
             date_naissance, lieu_naissance, adresse, telephone,
-            venant_de, allant_a
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            venant_de, allant_a, societe, societe_matricule
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             data["nom"], data["prenom"], data["type_identifiant"],
@@ -701,6 +725,7 @@ def add_client(data):
             data.get("lieu_naissance", ""), data.get("adresse", ""),
             data.get("telephone", ""), data.get("venant_de", ""),
             data.get("allant_a", ""),
+            data.get("societe", ""), data.get("societe_matricule", ""),
         ),
     )
     client_id = cur.lastrowid
@@ -732,7 +757,7 @@ def update_client(client_id, data):
         UPDATE clients SET
             nom=?, prenom=?, type_identifiant=?, numero_identifiant=?,
             date_naissance=?, lieu_naissance=?, adresse=?, telephone=?,
-            venant_de=?, allant_a=?
+            venant_de=?, allant_a=?, societe=?, societe_matricule=?
         WHERE id=?
         """,
         (
@@ -741,6 +766,7 @@ def update_client(client_id, data):
             data.get("lieu_naissance", ""), data.get("adresse", ""),
             data.get("telephone", ""), data.get("venant_de", ""),
             data.get("allant_a", ""),
+            data.get("societe", ""), data.get("societe_matricule", ""),
             client_id,
         ),
     )
@@ -858,6 +884,7 @@ def get_sejours_actifs():
         """
         SELECT s.*, c.nom, c.prenom, c.numero_identifiant,
                c.type_identifiant, c.adresse, c.venant_de, c.allant_a,
+               c.societe, c.societe_matricule,
                ch.numero AS chambre_numero, ch.prix AS chambre_prix
         FROM sejours s
         LEFT JOIN clients c ON c.id = s.client_id
@@ -988,13 +1015,16 @@ def create_facture(client_id, date_facture, date_entree, date_sortie,
                     type_identifiant="", numero_identifiant="",
                     adresse="", chambre_numero="",
                     venant_de="", allant_a="",
-                    timbre_fiscal=1.0):
+                    timbre_fiscal=1.0,
+                    societe="", societe_matricule=""):
     """
     lignes: liste de tuples (description, quantite, prix_unitaire)
     Retourne (facture_id, numero, montant_total)
     remise: pourcentage (%) appliqué sur le sous-total
     TVA = 7% appliquée après remise
     TTC = HT + TVA + timbre_fiscal
+    societe: nom de la société prise en charge (optionnel)
+    societe_matricule: matricule fiscal de la société (optionnel)
     """
     sous_total = 0.0
     lignes_calc = []
@@ -1021,13 +1051,15 @@ def create_facture(client_id, date_facture, date_entree, date_sortie,
                                date_entree, date_sortie, nb_nuits, montant_total,
                                remise, mode_paiement, sejour_id, montant_ht, tva,
                                type_identifiant, numero_identifiant, adresse,
-                               chambre_numero, venant_de, allant_a, timbre_fiscal)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               chambre_numero, venant_de, allant_a, timbre_fiscal,
+                               societe, societe_matricule)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (numero, client_id, nom_client, date_facture, date_entree, date_sortie,
          nb_nuits, montant_total, remise_pct, mode_paiement, sejour_id,
          montant_ht, tva, type_identifiant, numero_identifiant, adresse,
-         chambre_numero, venant_de, allant_a, tf),
+         chambre_numero, venant_de, allant_a, tf,
+         societe, societe_matricule),
     )
     facture_id = cur.lastrowid
 
@@ -1352,8 +1384,8 @@ def add_reservation(data):
             nom, prenom, telephone, type_identifiant, numero_identifiant,
             date_naissance, lieu_naissance, adresse, venant_de, allant_a,
             chambre_id, date_arrivee, date_depart, nb_personnes, notes, statut,
-            client_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            client_id, societe, societe_matricule
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             data["nom"], data["prenom"], data["telephone"],
@@ -1364,6 +1396,7 @@ def add_reservation(data):
             data["chambre_id"], data["date_arrivee"], data["date_depart"],
             data["nb_personnes"], data["notes"], data.get("statut", "RESERVE"),
             data.get("client_id"),
+            data.get("societe", ""), data.get("societe_matricule", ""),
         )
     )
     if data.get("chambre_id"):
@@ -1401,7 +1434,8 @@ def update_reservation(reservation_id, data):
             numero_identifiant=?, date_naissance=?, lieu_naissance=?,
             adresse=?, venant_de=?, allant_a=?,
             chambre_id=?, date_arrivee=?,
-            date_depart=?, nb_personnes=?, notes=?, statut=?, client_id=?
+            date_depart=?, nb_personnes=?, notes=?, statut=?, client_id=?,
+            societe=?, societe_matricule=?
         WHERE id=?
         """,
         (
@@ -1413,6 +1447,7 @@ def update_reservation(reservation_id, data):
             data["chambre_id"], data["date_arrivee"], data["date_depart"],
             data["nb_personnes"], data["notes"], data.get("statut", "RESERVE"),
             data.get("client_id"),
+            data.get("societe", ""), data.get("societe_matricule", ""),
             reservation_id,
         )
     )

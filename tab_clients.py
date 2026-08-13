@@ -112,6 +112,42 @@ class ClientsTab(tk.Frame):
         self._add_field(form_grid, r, "Venant de", "venant_de"); r += 1
         self._add_field(form_grid, r, "Allant à", "allant_a"); r += 1
 
+        # ── Section: Prise en charge par société ──────────────────
+        self._section_header(form_grid, "Prise en charge par société", r); r += 1
+
+        self.societe_paiement_var = tk.BooleanVar(value=False)
+        self.societe_check = tk.Checkbutton(
+            form_grid, text="Prise en charge par une société",
+            variable=self.societe_paiement_var, bg=CARD_BG,
+            fg=TEXT_PRIMARY, font=("Segoe UI", 9),
+            selectcolor=CARD_BG, activebackground=CARD_BG,
+            command=self._toggle_societe_fields)
+        self.societe_check.grid(row=r, column=0, columnspan=2, sticky="w",
+                                padx=18, pady=3)
+        r += 1
+
+        self.societe_nom_label = tk.Label(form_grid, text="Nom de la société",
+                                          bg=CARD_BG, fg=TEXT_PRIMARY,
+                                          font=("Segoe UI", 9))
+        self.societe_nom_label.grid(row=r, column=0, sticky="w", padx=18, pady=3)
+        self.societe_nom_var = tk.StringVar(value="")
+        self.societe_nom_entry = tk.Entry(form_grid, textvariable=self.societe_nom_var,
+                                          width=30, font=("Segoe UI", 9))
+        self.societe_nom_entry.grid(row=r, column=1, sticky="w", padx=4, pady=3)
+        r += 1
+
+        self.societe_mat_label = tk.Label(form_grid, text="Matricule fiscal",
+                                          bg=CARD_BG, fg=TEXT_PRIMARY,
+                                          font=("Segoe UI", 9))
+        self.societe_mat_label.grid(row=r, column=0, sticky="w", padx=18, pady=3)
+        self.societe_mat_var = tk.StringVar(value="")
+        self.societe_mat_entry = tk.Entry(form_grid, textvariable=self.societe_mat_var,
+                                          width=30, font=("Segoe UI", 9))
+        self.societe_mat_entry.grid(row=r, column=1, sticky="w", padx=4, pady=3)
+        r += 1
+
+        self._toggle_societe_fields()  # init state
+
         # ── Section: Chambre ────────────────────────────────────────
         self._section_header(form_grid, "Chambre", r); r += 1
 
@@ -167,6 +203,12 @@ class ClientsTab(tk.Frame):
                 if existing["date_naissance"]:
                     self.date_naissance.set(
                         iso_to_date_str(existing["date_naissance"]))
+                societe = existing["societe"] if "societe" in existing.keys() else ""
+                societe_mat = existing["societe_matricule"] if "societe_matricule" in existing.keys() else ""
+                self.societe_paiement_var.set(bool(societe))
+                self.societe_nom_var.set(societe or "")
+                self.societe_mat_var.set(societe_mat or "")
+                self._toggle_societe_fields()
                 self.cin_hint.config(
                     text=f"Client existant trouvé: {existing['prenom']} {existing['nom']}",
                     fg=SUCCES)
@@ -478,6 +520,14 @@ class ClientsTab(tk.Frame):
             self.chambre_var.set("— Aucune —")
         self._update_comp_max()
 
+    def _toggle_societe_fields(self):
+        state = "normal" if self.societe_paiement_var.get() else "disabled"
+        self.societe_nom_entry.config(state=state)
+        self.societe_mat_entry.config(state=state)
+        if not self.societe_paiement_var.get():
+            self.societe_nom_var.set("")
+            self.societe_mat_var.set("")
+
     def _update_comp_max(self):
         if not hasattr(self, "comp_count_combo"):
             return
@@ -560,6 +610,13 @@ class ClientsTab(tk.Frame):
         self.vars["venant_de"].set(client["venant_de"])
         self.vars["allant_a"].set(client["allant_a"])
 
+        societe = client["societe"] if "societe" in client.keys() else ""
+        societe_mat = client["societe_matricule"] if "societe_matricule" in client.keys() else ""
+        self.societe_paiement_var.set(bool(societe))
+        self.societe_nom_var.set(societe or "")
+        self.societe_mat_var.set(societe_mat or "")
+        self._toggle_societe_fields()
+
         if client["date_naissance"]:
             self.date_naissance.set(iso_to_date_str(client["date_naissance"]))
         else:
@@ -611,6 +668,10 @@ class ClientsTab(tk.Frame):
         self._rebuild_compagnon_forms()
         self.cin_hint.config(text="", fg=TEXT_SECONDARY)
         self._refresh_chambre_combo()
+        self.societe_paiement_var.set(False)
+        self.societe_nom_var.set("")
+        self.societe_mat_var.set("")
+        self._toggle_societe_fields()
         for item in self.sejours_tree.get_children():
             self.sejours_tree.delete(item)
         self.refresh()
@@ -653,6 +714,8 @@ class ClientsTab(tk.Frame):
             "telephone": self.vars["telephone"].get().strip(),
             "venant_de": self.vars["venant_de"].get().strip(),
             "allant_a": self.vars["allant_a"].get().strip(),
+            "societe": self.societe_nom_var.get().strip() if self.societe_paiement_var.get() else "",
+            "societe_matricule": self.societe_mat_var.get().strip() if self.societe_paiement_var.get() else "",
         }
         return data
 

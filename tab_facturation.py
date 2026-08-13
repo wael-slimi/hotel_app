@@ -234,13 +234,12 @@ class FacturationTab(tk.Frame):
         tk.Label(c3_inner, text="Remise (%)", bg=CARD_BG, fg=TEXT_PRIMARY,
                  font=("Segoe UI", 9)).grid(
             row=0, column=0, sticky="w", padx=(0, 8), pady=4)
-        self.remise_var = tk.StringVar(value="0,000")
+        self.remise_var = tk.StringVar(value="0")
         self.remise_var.trace_add("write", lambda *a: self.update_total())
         self.remise_entry = tk.Entry(c3_inner, textvariable=self.remise_var, width=10,
                                      font=("Segoe UI", 9), bd=1, relief="solid",
                                      highlightbackground=CARD_BORDER)
         self.remise_entry.grid(row=0, column=1, sticky="w", pady=4)
-        self.remise_entry.bind("<FocusOut>", lambda e: _formater_prix(self.remise_var))
 
         tk.Label(c3_inner, text="Mode de paiement", bg=CARD_BG, fg=TEXT_PRIMARY,
                  font=("Segoe UI", 9)).grid(
@@ -338,6 +337,8 @@ class FacturationTab(tk.Frame):
                 "sejour_id": s["id"],
                 "venant_de": s["venant_de"],
                 "allant_a": s["allant_a"],
+                "societe": s["societe"] if "societe" in s.keys() else "",
+                "societe_matricule": s["societe_matricule"] if "societe_matricule" in s.keys() else "",
                 "is_reservation": False,
             }
             valeurs.append(texte)
@@ -653,7 +654,7 @@ class FacturationTab(tk.Frame):
         self.client_var.set("")
         self.chambre_label_var.set("-")
         self.lignes = []
-        self.remise_var.set("0,000")
+        self.remise_var.set("0")
         self.mode_var.set("Espèces")
         self.paye_var.set(False)
         self.refresh_lignes()
@@ -735,6 +736,8 @@ class FacturationTab(tk.Frame):
             venant_de=client.get("venant_de", ""),
             allant_a=client.get("allant_a", ""),
             timbre_fiscal=1.0,
+            societe=client.get("societe", ""),
+            societe_matricule=client.get("societe_matricule", ""),
         )
 
         self.derniere_facture_id = facture_id
@@ -1295,6 +1298,8 @@ class FacturationTab(tk.Frame):
                 venant_de=client.get("venant_de", ""),
                 allant_a=client.get("allant_a", ""),
                 timbre_fiscal=1.0,
+                societe=client.get("societe", ""),
+                societe_matricule=client.get("societe_matricule", ""),
             )
             self.facture_id_map[texte] = facture_id
 
